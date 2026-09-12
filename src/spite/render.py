@@ -61,7 +61,8 @@ def render_matplotlib(
     # 環境に存在しない場合はmatplotlibが自動的に次の候補へフォールバックする。
     plt.rcParams["font.family"] = [
         "Noto Sans CJK JP",
-        "IPAexGothic",
+        "IPAPGothic",
+        "IPAGothic",
         "sans-serif",
     ]
 
