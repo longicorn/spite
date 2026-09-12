@@ -7,8 +7,11 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 
+from .businessdays import add_business_days
 from .lognormal import pdf
 from .params import LogNormalParams
 
@@ -79,6 +82,7 @@ def render_matplotlib(
     params: LogNormalParams,
     percentiles: dict[str, float],
     *,
+    start_date: date | None = None,
     comparison_params: LogNormalParams | None = None,
     comparison_percentiles: dict[str, float] | None = None,
     output_path: str | None = None,
@@ -88,6 +92,7 @@ def render_matplotlib(
 
     comparison_params を指定すると、比較用の分布(指定日に対する標準的の
     標準的な分布)を同じグラフ上に重ねて表示する。
+    start_date を指定すると、グラフ下の表にP値の稼働日数と日付を表示する。
     """
     import matplotlib
 
@@ -104,6 +109,42 @@ def render_matplotlib(
         "IPAGothic",
         "sans-serif",
     ]
+
+    if start_date is not None:
+        fig = plt.figure(figsize=(9, 7), layout="constrained")
+        grid = fig.add_gridspec(2, 1, height_ratios=[4, 1.2])
+        ax = fig.add_subplot(grid[0])
+        table_ax = fig.add_subplot(grid[1])
+        table_ax.axis("off")
+        rows = []
+        colors = []
+        if comparison_params is not None and comparison_percentiles:
+            rows.append(("標準", comparison_percentiles))
+            colors.append("tab:orange")
+        rows.append(("指定日" if comparison_params is not None else "予測", percentiles))
+        colors.append("tab:blue")
+        names = list(percentiles)
+        cells = []
+        for label, values in rows:
+            cells.append([label] + [
+                f"{values[name]:.1f}稼働日\n"
+                f"{add_business_days(start_date, round(values[name])).isoformat()}"
+                for name in names
+            ])
+        table = table_ax.table(
+            cellText=cells,
+            colLabels=["分布"] + [name.upper() for name in names],
+            cellLoc="center",
+            colWidths=[0.16] + [0.84 / len(names)] * len(names),
+            bbox=[0, 0, 1, 1],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        for row, color in enumerate(colors, start=1):
+            for col in range(len(names) + 1):
+                table[row, col].get_text().set_color(color)
+    else:
+        fig, ax = plt.subplots()
 
     def plot_one(
         ax,
@@ -138,7 +179,6 @@ def render_matplotlib(
         ax.legend()
 
     if comparison_params is None:
-        fig, ax = plt.subplots()
         plot_one(
             ax,
             params,
@@ -153,7 +193,6 @@ def render_matplotlib(
         axis_upper = max(standard_upper, specified_upper)
         standard_xs = np.linspace(standard_upper / 500, standard_upper, 500)
         specified_xs = np.linspace(specified_upper / 500, specified_upper, 500)
-        fig, ax = plt.subplots()
         ax.plot(
             standard_xs,
             pdf(comparison_params, standard_xs),
@@ -175,7 +214,7 @@ def render_matplotlib(
             ax.text(
                 value,
                 ymax * 0.9,
-                f"{name.upper()}(標準)",
+                name.upper(),
                 rotation=90,
                 va="top",
                 color="tab:orange",
@@ -186,7 +225,7 @@ def render_matplotlib(
             ax.text(
                 value,
                 ymax * 0.72,
-                f"{name.upper()}(指定)",
+                name.upper(),
                 rotation=90,
                 va="top",
                 color="tab:blue",
@@ -197,7 +236,8 @@ def render_matplotlib(
         ax.set_ylabel("確率密度")
         ax.set_title("対数正規分布による納期予測（標準的 vs 指定日）")
         ax.legend()
-    fig.tight_layout()
+    if start_date is None:
+        fig.tight_layout()
 
     if output_path:
         fig.savefig(output_path)

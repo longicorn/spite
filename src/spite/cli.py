@@ -194,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         render_matplotlib(
             params,
             percentiles,
+            start_date=start_date,
             comparison_params=comparison_params,
             comparison_percentiles=comparison_percentiles,
             output_path=args.output,
