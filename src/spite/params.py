@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-# --- 選択肢2(開始日のみ指定)で使うデフォルトパラメータ ------------------
+# --- 標準的(開始日のみ指定)で使うデフォルトパラメータ ------------------
 #
 # sigma: 対数正規分布の形状(相対的なばらつき)パラメータ。
 #     無次元の値で、ソフトウェア開発の見積もりにおいて経験的に使われる
@@ -38,7 +38,7 @@ class LogNormalParams:
 def params_from_median_and_sigma(
     median_business_days: float, sigma: float
 ) -> LogNormalParams:
-    """中央値(稼働日数)とσから直接パラメータを組み立てる(選択肢2)。
+    """中央値(稼働日数)とσから直接パラメータを組み立てる(標準的)。
 
     lognormal の median = exp(mu) なので mu = ln(median) となる。
     """
@@ -50,12 +50,12 @@ def params_from_median_and_sigma(
 
 
 def default_params() -> LogNormalParams:
-    """選択肢2(開始日のみ)用のデフォルトパラメータを返す。"""
+    """標準的(開始日のみ)用のデフォルトパラメータを返す。"""
     return params_from_median_and_sigma(DEFAULT_MEDIAN_BUSINESS_DAYS, DEFAULT_SIGMA)
 
 
 def params_from_mode_and_p90(mode_days: float, p90_days: float) -> LogNormalParams:
-    """納期(mode, 分布のピーク)と最悪日(P90)の2点からμ, σを解析的に算出する(選択肢1)。
+    """納期(mode, 分布のピーク)と最悪日(P90)の2点からμ, σを解析的に算出する(指定日)。
 
     lognormal の関係式:
         mode = exp(mu - sigma^2)

@@ -24,7 +24,7 @@ def render_ascii(
 ) -> str:
     """確率密度関数をターミナル上のASCIIアートとして描画した文字列を返す。
 
-    comparison_params を指定すると、比較用の分布(選択肢1に対する選択肢2の
+    comparison_params を指定すると、比較用の分布(指定日に対する標準的の
     標準的な分布など)を "." のバーで並べて表示する。
     """
     all_values = list(percentiles.values())
@@ -70,7 +70,7 @@ def render_ascii(
         lines.append(line)
 
     if comparison_ys is not None:
-        header = "凡例: # = 選択肢1(指定した納期), . = 選択肢2(標準的な分布・比較用)\n"
+        header = "凡例: # = 指定日(指定した納期), . = 標準的(標準的な分布・比較用)\n"
         return header + "\n".join(lines)
     return "\n".join(lines)
 
@@ -86,7 +86,7 @@ def render_matplotlib(
 ) -> None:
     """確率密度関数をmatplotlibで描画し、画像保存・ウィンドウ表示を行う。
 
-    comparison_params を指定すると、比較用の分布(選択肢1に対する選択肢2の
+    comparison_params を指定すると、比較用の分布(指定日に対する標準的の
     標準的な分布)を同じグラフ上に重ねて表示する。
     """
     import matplotlib
@@ -113,7 +113,7 @@ def render_matplotlib(
     ys = pdf(params, xs)
 
     fig, ax = plt.subplots()
-    main_label = "確率密度" if comparison_params is None else "選択肢1: 指定した納期による分布"
+    main_label = "確率密度" if comparison_params is None else "指定日: 指定した納期による分布"
     ax.plot(xs, ys, label=main_label, color="tab:blue")
 
     comparison_ys = None
@@ -122,7 +122,7 @@ def render_matplotlib(
         ax.plot(
             xs,
             comparison_ys,
-            label="選択肢2: 標準的な分布(比較用)",
+            label="標準的: 標準的な分布(比較用)",
             color="tab:orange",
             linestyle="--",
         )
@@ -151,7 +151,7 @@ def render_matplotlib(
     ax.set_ylabel("確率密度")
     title = "対数正規分布による納期予測"
     if comparison_params is not None:
-        title += "(選択肢1 vs 選択肢2)"
+        title += "(標準的 vs 指定日)"
     ax.set_title(title)
     ax.legend()
     fig.tight_layout()
