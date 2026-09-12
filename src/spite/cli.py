@@ -11,6 +11,7 @@ from .params import (
     DEFAULT_MEDIAN_BUSINESS_DAYS,
     DEFAULT_SIGMA,
     LogNormalParams,
+    default_params,
     params_from_median_and_sigma,
     params_from_mode_and_p90,
 )
@@ -178,10 +179,35 @@ def main(argv: list[str] | None = None) -> int:
 
     _print_report(start_date, params, stats, percentiles)
 
+    # 選択肢1(--deadline/--worst-case指定)の場合は、比較しやすいように
+    # 選択肢2の標準的な分布(既定のmedian/sigma)も同時にグラフ表示する。
+    is_choice1 = args.deadline is not None and args.worst_case is not None
+    comparison_params: LogNormalParams | None = None
+    comparison_percentiles: dict[str, float] | None = None
+    if is_choice1:
+        comparison_params = default_params()
+        comparison_percentiles = {
+            name: percentile_days(comparison_params, q) for name, q in PERCENTILE_TARGETS
+        }
+
     if args.output or args.show:
-        render_matplotlib(params, percentiles, output_path=args.output, show=args.show)
+        render_matplotlib(
+            params,
+            percentiles,
+            comparison_params=comparison_params,
+            comparison_percentiles=comparison_percentiles,
+            output_path=args.output,
+            show=args.show,
+        )
     else:
         print()
-        print(render_ascii(params, percentiles))
+        print(
+            render_ascii(
+                params,
+                percentiles,
+                comparison_params=comparison_params,
+                comparison_percentiles=comparison_percentiles,
+            )
+        )
 
     return 0
