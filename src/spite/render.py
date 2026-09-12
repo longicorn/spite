@@ -36,12 +36,12 @@ def render_ascii(
     max_y = float(ys.max()) if ys.max() > 0 else 1.0
 
     comparison_ys = None
-    comparison_max_y = 1.0
     if comparison_params is not None:
         comparison_ys = pdf(comparison_params, xs)
-        comparison_max_y = (
-            float(comparison_ys.max()) if comparison_ys.max() > 0 else 1.0
-        )
+        # 比較対象も主分布と同じ密度スケールで描画する。
+        # 分布ごとに最大値を幅50へ正規化すると、標準分布を単独表示した
+        # 場合と比較したときに、形状や高さが異なって見えてしまう。
+        max_y = max(max_y, float(comparison_ys.max()))
 
     # 各binが担当する区間にどの percentile が含まれるかを調べ、行末に注記する
     labels_by_bin: list[list[str]] = [[] for _ in xs]
@@ -62,7 +62,7 @@ def render_ascii(
         bar = "#" * bar_len
         line = f"{x:6.1f}稼働日 | {bar}"
         if comparison_ys is not None:
-            comp_len = int(round((comparison_ys[i] / comparison_max_y) * width))
+            comp_len = int(round((comparison_ys[i] / max_y) * width))
             line += f"  | {'.' * comp_len}"
         labels = labels_by_bin[i]
         if labels:
@@ -105,55 +105,98 @@ def render_matplotlib(
         "sans-serif",
     ]
 
-    all_values = list(percentiles.values())
-    if comparison_percentiles:
-        all_values += list(comparison_percentiles.values())
-    upper = max(all_values) * 1.5
-    xs = np.linspace(upper / 500, upper, 500)
-    ys = pdf(params, xs)
+    def plot_one(
+        ax,
+        distribution_params: LogNormalParams,
+        distribution_percentiles: dict[str, float],
+        *,
+        title: str,
+        color: str,
+    ) -> None:
+        # 分布ごとに横軸を決める。比較表示でも、各分布の稼働期間が
+        # もう一方の分布の長さに引きずられないようにする。
+        upper = max(distribution_percentiles.values()) * 1.5
+        xs = np.linspace(upper / 500, upper, 500)
+        ys = pdf(distribution_params, xs)
+        ax.plot(xs, ys, label="確率密度", color=color)
 
-    fig, ax = plt.subplots()
-    main_label = "確率密度" if comparison_params is None else "指定日: 指定した納期による分布"
-    ax.plot(xs, ys, label=main_label, color="tab:blue")
+        ymax = ax.get_ylim()[1]
+        for name, value in distribution_percentiles.items():
+            ax.axvline(value, linestyle="--", alpha=0.7, color=color)
+            ax.text(
+                value,
+                ymax * 0.9,
+                name.upper(),
+                rotation=90,
+                va="top",
+                color=color,
+            )
 
-    comparison_ys = None
-    if comparison_params is not None:
-        comparison_ys = pdf(comparison_params, xs)
+        ax.set_xlabel("稼働日数")
+        ax.set_ylabel("確率密度")
+        ax.set_title(title)
+        ax.legend()
+
+    if comparison_params is None:
+        fig, ax = plt.subplots()
+        plot_one(
+            ax,
+            params,
+            percentiles,
+            title="対数正規分布による納期予測",
+            color="tab:blue",
+        )
+    else:
+        comparison_percentiles = comparison_percentiles or {}
+        standard_upper = max(comparison_percentiles.values()) * 1.5
+        specified_upper = max(percentiles.values()) * 1.5
+        axis_upper = max(standard_upper, specified_upper)
+        standard_xs = np.linspace(standard_upper / 500, standard_upper, 500)
+        specified_xs = np.linspace(specified_upper / 500, specified_upper, 500)
+        fig, ax = plt.subplots()
         ax.plot(
-            xs,
-            comparison_ys,
-            label="標準的: 標準的な分布(比較用)",
+            standard_xs,
+            pdf(comparison_params, standard_xs),
+            label="標準的な分布",
             color="tab:orange",
             linestyle="--",
         )
-
-    ymax = ax.get_ylim()[1]
-    for name, value in percentiles.items():
-        ax.axvline(value, linestyle="--", alpha=0.7, color="tab:blue")
-        ax.text(
-            value, ymax * 0.9, name.upper(), rotation=90, va="top", color="tab:blue"
+        ax.plot(
+            specified_xs,
+            pdf(params, specified_xs),
+            label="指定日による分布",
+            color="tab:blue",
         )
+        ax.set_xlim(0, axis_upper)
 
-    if comparison_percentiles:
+        ymax = ax.get_ylim()[1]
         for name, value in comparison_percentiles.items():
-            ax.axvline(value, linestyle=":", alpha=0.5, color="tab:orange")
+            ax.axvline(value, linestyle=":", alpha=0.7, color="tab:orange")
             ax.text(
                 value,
-                ymax * 0.75,
-                f"{name.upper()}'",
+                ymax * 0.9,
+                f"{name.upper()}(標準)",
                 rotation=90,
                 va="top",
                 color="tab:orange",
                 fontsize=8,
             )
+        for name, value in percentiles.items():
+            ax.axvline(value, linestyle="--", alpha=0.7, color="tab:blue")
+            ax.text(
+                value,
+                ymax * 0.72,
+                f"{name.upper()}(指定)",
+                rotation=90,
+                va="top",
+                color="tab:blue",
+                fontsize=8,
+            )
 
-    ax.set_xlabel("稼働日数")
-    ax.set_ylabel("確率密度")
-    title = "対数正規分布による納期予測"
-    if comparison_params is not None:
-        title += "(標準的 vs 指定日)"
-    ax.set_title(title)
-    ax.legend()
+        ax.set_xlabel("稼働日数")
+        ax.set_ylabel("確率密度")
+        ax.set_title("対数正規分布による納期予測（標準的 vs 指定日）")
+        ax.legend()
     fig.tight_layout()
 
     if output_path:
