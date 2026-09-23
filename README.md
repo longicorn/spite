@@ -21,3 +21,11 @@ $ uv run spite predict
 ```
 $ uv run spite predict
 ```
+
+```
+# 開発未完了の場合
+$ uv run spite predict --distribution lognormal --start-date 2024-09-10 --deadline 2024-09-30 --output output.png
+
+# 開発完了済みの場合
+$ uv run spite predict --distribution lognormal --start-date 2024-09-10 --deadline 2024-09-30 --actual-end-date 2024-12-10 --output output.png
+```
