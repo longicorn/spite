@@ -50,6 +50,7 @@ def render_matplotlib(
     *,
     start_date: date | None = None,
     actual_days: int | None = None,
+    actual_summary: str | None = None,
     output_path: str | None = None,
     show: bool = False,
 ) -> None:
@@ -65,10 +66,22 @@ def render_matplotlib(
     ]
 
     if start_date is not None:
+        row_heights = [4]
+        if actual_summary is not None:
+            row_heights.append(0.55)
+        row_heights.append(1.2)
         fig = plt.figure(figsize=(9, 7), layout="constrained")
-        grid = fig.add_gridspec(2, 1, height_ratios=[4, 1.2])
+        grid = fig.add_gridspec(len(row_heights), 1, height_ratios=row_heights)
         ax = fig.add_subplot(grid[0])
-        table_ax = fig.add_subplot(grid[1])
+        next_row = 1
+        if actual_summary is not None:
+            summary_ax = fig.add_subplot(grid[next_row])
+            summary_ax.axis("off")
+            summary_ax.text(
+                0.01, 0.5, actual_summary, ha="left", va="center", fontsize=10
+            )
+            next_row += 1
+        table_ax = fig.add_subplot(grid[next_row])
         table_ax.axis("off")
     else:
         fig, ax = plt.subplots()
@@ -93,6 +106,8 @@ def render_matplotlib(
     if actual_days is not None:
         ax.axvline(actual_days, color="black", linestyle="-.", linewidth=1.5,
                    label=f"実績 {actual_days}稼働日")
+    if actual_summary is not None and start_date is None:
+        fig.text(0.5, 0.01, actual_summary, ha="center", va="bottom", fontsize=10)
     ax.legend()
 
     if start_date is not None:
