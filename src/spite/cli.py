@@ -113,6 +113,21 @@ def _build_scenarios(args: argparse.Namespace, start_date: date, error):
     return scenarios
 
 
+def _actual_deviation_sentence(difference: int, planned_days: int) -> str:
+    difference_percent = difference / planned_days * 100
+    if difference > 0:
+        return (
+            f"実績は想定納期より{difference}稼働日 "
+            f"({difference_percent:.1f}%)遅れて完了しました。"
+        )
+    if difference < 0:
+        return (
+            f"実績は想定納期より{abs(difference)}稼働日 "
+            f"({abs(difference_percent):.1f}%)早く完了しました。"
+        )
+    return "実績は想定納期どおりに完了しました。"
+
+
 def _print_report(
     start_date: date,
     deadline: date,
@@ -136,15 +151,12 @@ def _print_report(
     normal_params, normal_percentiles = scenarios["通常"]
     planned_days = business_days_between(start_date, deadline)
     difference = actual_days - planned_days
-    difference_percent = difference / planned_days * 100
     probability = completion_probability(normal_params, actual_days)
     tail_probability = remaining_probability(normal_params, actual_days)
 
     print("\n終了済み案件の振り返り (通常シナリオ基準)")
     print(f"実際の終了日: {actual_end_date.isoformat()} ({actual_days}稼働日)")
-    print(
-        f"想定納期との差: {difference:+d}稼働日 ({difference_percent:+.1f}%)"
-    )
+    print(_actual_deviation_sentence(difference, planned_days))
     if probability > 0.999:
         print(
             "通常シナリオでの位置: P99.9超相当 "
@@ -180,12 +192,19 @@ def main(argv: list[str] | None = None) -> int:
         predict_parser.error("--actual-end-date は開始日以降の日付を指定してください")
     scenarios = _build_scenarios(args, start_date, predict_parser.error)
     actual_days = _print_report(start_date, deadline, scenarios, actual_end_date)
+    actual_summary = None
+    if actual_days is not None:
+        planned_days = business_days_between(start_date, deadline)
+        actual_summary = _actual_deviation_sentence(
+            actual_days - planned_days, planned_days
+        )
 
     if args.output or args.show:
         render_matplotlib(
             scenarios,
             start_date=start_date,
             actual_days=actual_days,
+            actual_summary=actual_summary,
             output_path=args.output,
             show=args.show,
         )

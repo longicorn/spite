@@ -42,10 +42,12 @@ uv run spite predict --start-date YYYY-MM-DD --deadline YYYY-MM-DD [オプショ
 `--actual-end-date` を指定すると、上記の予測表示に加えて、実績期間を通常シナリオで評価する。
 
 - 実際の期間と当初の想定納期との差を、稼働日数と割合で表示する。
+- 差は「実績は想定納期よりN稼働日 (N.N%)遅れて/早く完了しました」のような文章で表示する。差が0の場合は「想定納期どおりに完了しました」と表示する。割合の基準は当初の想定期間。
 - 通常シナリオの累積分布関数(CDF)から、実績のパーセンタイルを表示する。
 - 通常シナリオのP90との差も表示する。
 - 実績がP99.9を超える場合は「P99.9超相当」とし、実績以降に完了する確率を生存関数(SF)で表示する。
 - グラフの横軸を実績期間まで広げ、実績位置に目印を表示する。
+- matplotlibのグラフでは、端末と同じ実績差の文章をグラフとパーセンタイル表の間に表示する。`--output` と `--show` の両方に反映される。
 - 最善・最悪シナリオもグラフに表示するが、数値による振り返り評価は通常シナリオを基準とする。
 
 1件の終了済み案件は、現在の仮定に照らして振り返るために使う。1件の実績から係数・σを自動調整する機能ではない。複数案件を用いた校正は将来の課題。
@@ -89,8 +91,10 @@ src/spite/
 ├── params.py         # 対数正規分布パラメータと係数の既定値
 ├── businessdays.py   # 土日を除く稼働日計算
 ├── lognormal.py      # scipyによるPDF、分位点、CDF、SF、統計量
-└── render.py         # ASCII / matplotlib描画、日付表、実績マーカー
+└── render.py         # ASCII / matplotlib描画、日付表、実績マーカーと振り返り文
 ```
+
+振り返り文の生成は `src/spite/cli.py` の `_actual_deviation_sentence()` に集約し、端末出力とmatplotlib描画で同じ文字列を使う。描画への受け渡しは `render_matplotlib(..., actual_summary=...)`。
 
 Pythonは `.python-version` および `pyproject.toml` で3.13.15系を指定する。依存関係はnumpy、scipy、matplotlib。実行は `uv run spite predict ...` を想定。
 
