@@ -22,6 +22,16 @@ def percentile_days(params: LogNormalParams, q: float) -> float:
     return float(scipy_dist(params).ppf(q))
 
 
+def completion_probability(params: LogNormalParams, days: float) -> float:
+    """days までに完了する累積確率を返す。"""
+    return float(scipy_dist(params).cdf(days))
+
+
+def remaining_probability(params: LogNormalParams, days: float) -> float:
+    """days より後に完了する確率を数値的に安定した形で返す。"""
+    return float(scipy_dist(params).sf(days))
+
+
 def pdf(params: LogNormalParams, x: np.ndarray) -> np.ndarray:
     """稼働日数 x における確率密度を返す。"""
     return scipy_dist(params).pdf(x)
