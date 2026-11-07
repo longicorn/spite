@@ -1,31 +1,40 @@
 # Spite
-Spiteはシステム開発における納期予測を確率分布に基づき行うための実験用ツール
 
-既存の納期予測や工数管理等はせいぜい現場エンジニアの勘、ビジネス都合による要求、過去のスループットやサイクルタイムからの計算がよく行われる方法であり既存ツールもこの類似の考え方に寄っている
+[日本語版 (Japanese)](README.ja.md)
 
-これを納期とは確率分布という考えを元に予測する方法があるが具体的にどう行うかは不明である。
-これはシステム開発がそもそも多くの状況にありあまりにも複雑で再現性が難しいからだと考える。
+Spite is an experimental tool for forecasting software development deadlines based on probability distributions.
 
-Spiteのそのための実験的なツールとして方法を探るのが目的となる。
+Conventional deadline forecasting and effort management typically rely on engineer intuition, business-driven targets, or extrapolations from past throughput and cycle time. While the concept that "a software deadline is a probability distribution" is well known, practical methods for applying and updating distributions throughout a complex development lifecycle remain underexplored.
 
-## 使い方
+Spite explores this problem by letting teams set an initial probability distribution from project start, compare Best / Nominal / Worst scenarios, and evaluate actual completion results against initial assumptions.
 
-一旦仮で対数正規分布でのグラフ表示ができるように
-考え方としては標準的な対数正規分布と終了日時指定可能な場合の計算&グラフ表示ができる
+## Usage
 
-```
-$ uv run spite predict
-```
+Spite currently models delivery lead time using the lognormal distribution across three scenarios (Best, Nominal, and Worst), supporting both forward-looking prediction and post-completion retrospective evaluation.
 
-詳しい指定方法は `--help` 参照
-```
-$ uv run spite predict
+Run `--help` to check all available options:
+
+```bash
+$ uv run spite predict --help
 ```
 
-```
-# 開発未完了の場合
+### Forecast Mode (In-progress or upcoming project)
+
+Outputs P50, P80, and P90 completion dates (in working business days) for Best, Nominal, and Worst scenarios. By default, an ASCII chart is rendered in the terminal; pass `--output` or `--show` to render with matplotlib.
+
+```bash
 $ uv run spite predict --distribution lognormal --start-date 2024-09-10 --deadline 2024-09-30 --output output.png
+```
 
-# 開発完了済みの場合
+### Retrospective Mode (Completed project)
+
+Pass `--actual-end-date` to evaluate actual completion duration against the initial Nominal scenario (deviation in business days and percentage, CDF percentile, P90 delta, and tail probability).
+
+```bash
 $ uv run spite predict --distribution lognormal --start-date 2024-09-10 --deadline 2024-09-30 --actual-end-date 2024-12-10 --output output.png
 ```
+
+## Documentation
+
+- [Product Requirements Document (PRD)](docs/prd.md) ([日本語](docs/prd.ja.md))
+- [Architecture Decision Record (ADR)](docs/adr.md) ([日本語](docs/adr.ja.md))
