@@ -20,7 +20,7 @@ from .params import (
     LogNormalParams,
     params_from_mode_and_sigma,
 )
-from .render import render_ascii, render_matplotlib
+from .render import render_ascii, render_matplotlib, render_markdown
 
 PERCENTILE_TARGETS: tuple[tuple[str, float], ...] = (
     ("p50", 0.50),
@@ -71,7 +71,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         default=DEFAULT_SIGMA,
         help=f"各シナリオ共通の分布の幅 (既定値: {DEFAULT_SIGMA:g})",
     )
-    predict.add_argument("--output", "-o", help="グラフを画像ファイルに保存するパス")
+    predict.add_argument("--format", choices=["terminal", "markdown"], default="terminal", help="出力形式 (既定: terminal)")
+    predict.add_argument("--output", "-o", help="画像またはMarkdownの保存先")
     predict.add_argument("--show", action="store_true", help="グラフをウィンドウで表示する")
     from .simulation.cli import configure
     configure(subparsers)
@@ -196,6 +197,18 @@ def main(argv: list[str] | None = None) -> int:
     if actual_end_date is not None and actual_end_date < start_date:
         predict_parser.error("--actual-end-date は開始日以降の日付を指定してください")
     scenarios = _build_scenarios(args, start_date, predict_parser.error)
+    if args.format == "markdown":
+        if args.show:
+            predict_parser.error("--show は --format markdown と併用できません")
+        report = render_markdown(scenarios, start_date=start_date, deadline=deadline,
+                                 best_factor=args.best_factor, worst_factor=args.worst_factor,
+                                 actual_end_date=actual_end_date)
+        if args.output:
+            from pathlib import Path
+            Path(args.output).write_text(report, encoding="utf-8")
+        else:
+            print(report, end="")
+        return 0
     actual_days = _print_report(start_date, deadline, scenarios, actual_end_date)
     actual_summary = None
     if actual_days is not None:

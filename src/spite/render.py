@@ -137,3 +137,66 @@ def render_matplotlib(
     if show:
         plt.show()
     plt.close(fig)
+
+
+def render_markdown(
+    scenarios: ScenarioMap,
+    *,
+    start_date: date,
+    deadline: date,
+    best_factor: float,
+    worst_factor: float,
+    actual_end_date: date | None = None,
+) -> str:
+    """Render the prediction and optional retrospective as standalone Markdown."""
+    from .businessdays import business_days_between
+    from .lognormal import completion_probability, remaining_probability
+
+    actual_days = (business_days_between(start_date, actual_end_date)
+                   if actual_end_date is not None else None)
+    sigma = next(iter(scenarios.values()))[0].sigma
+    lines = [
+        "# Delivery forecast", "",
+        f"Start: {start_date}; deadline: {deadline}; distribution: lognormal; "
+        f"sigma: {sigma:g}; best factor: {best_factor:g}; worst factor: {worst_factor:g}",
+        "", "Durations are business days; dates use the nearest whole business day.", "",
+        "| Scenario | P50 | P80 | P90 |", "| --- | --- | --- | --- |",
+    ]
+    for name, (_, percentiles) in scenarios.items():
+        cells = [f"{days:.1f} ({add_business_days(start_date, round(days))})"
+                 for days in percentiles.values()]
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    upper = max(max(p.values()) for _, p in scenarios.values()) * 1.5
+    if actual_days is not None:
+        upper = max(upper, actual_days * 1.05)
+    upper = max(1, int(np.ceil(upper)))
+    xs = np.linspace(0, upper, 61)
+    curves = [pdf(params, xs) for params, _ in scenarios.values()]
+    ceiling = max(.001, np.ceil(max(float(curve.max()) for curve in curves) * 1100) / 1000)
+    lines += [
+        "", "## Completion distribution", "",
+        "Lognormal probability density. Best: green; Nominal: blue; Worst: red.", "",
+        "```mermaid",
+        "%%{init: {'theme': 'base', 'themeVariables': {'xyChart': {'plotColorPalette': '#2e8b57, #3266cc, #d64b40'}}}}%%",
+        "xychart-beta", '    title "Completion time by scenario"',
+        f'    x-axis "Business days" 0 --> {upper}',
+        f'    y-axis "Probability density" 0 --> {ceiling:g}',
+    ]
+    for curve in curves:
+        lines.append("    line [" + ", ".join(f"{value:.6f}" for value in curve) + "]")
+    lines.append("```")
+    if actual_days is not None:
+        planned_days = business_days_between(start_date, deadline)
+        params, percentiles = scenarios["通常"]
+        probability = completion_probability(params, actual_days)
+        tail = remaining_probability(params, actual_days)
+        difference = actual_days - planned_days
+        p90_diff = actual_days - percentiles["p90"]
+        rank = (f"> P99.9 (probability of completing later: {tail * 100:.6g}%)"
+                if probability > .999 else f"P{probability * 100:.1f}")
+        lines += ["", "## Retrospective (Nominal)", "",
+                  f"- Actual completion: {actual_end_date} ({actual_days} business days)",
+                  f"- Difference from deadline: {difference:+d} business days ({difference / planned_days * 100:+.1f}%)",
+                  f"- Position in forecast: {rank}",
+                  f"- Difference from P90: {p90_diff:+.1f} business days"]
+    return "\n".join(lines) + "\n"
