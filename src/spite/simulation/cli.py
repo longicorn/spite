@@ -1,24 +1,30 @@
 """CLI and reports for structural simulation."""
 import math
 import random
+import secrets
 import statistics
 from pathlib import Path
 from ..units import duration, positive_float
+from ..storage import load_run, save_run
 from .engine import generate, simulate
 
 
 def configure(subparsers):
     p = subparsers.add_parser('simulate', help='Structural Monte Carlo forecasting')
-    p.add_argument('--tasks-per-period', type=positive_float, default=1.0, help='Reference tasks per period per team member; task duration mode is its reciprocal (default: 1)')
+    p.add_argument('--tasks-per-period', type=positive_float, default=None, help='Reference tasks per period per team member; task duration mode is its reciprocal (default: 1)')
     p.add_argument('--days-per-period', type=positive_float, help='Optional approximate days per period')
-    p.add_argument('--pattern', choices=['linear', 'parallel', 'complex', 'exploratory'], default='complex')
-    p.add_argument('--scale', choices=['small', 'medium', 'large'], default='medium')
-    p.add_argument('--uncertainty', choices=['low', 'medium', 'high'], default='medium')
-    p.add_argument('--rework-rate', type=float, default=.15)
-    p.add_argument('--team-size', type=int, default=2)
-    p.add_argument('--iterations', type=int, default=2000)
+    p.add_argument('--pattern', choices=['linear', 'parallel', 'complex', 'exploratory'], default=None)
+    p.add_argument('--scale', choices=['small', 'medium', 'large'], default=None)
+    p.add_argument('--uncertainty', choices=['low', 'medium', 'high'], default=None)
+    p.add_argument('--rework-rate', type=float, default=None)
+    p.add_argument('--team-size', type=int, default=None)
+    p.add_argument('--iterations', type=int, default=None)
     p.add_argument('--format', choices=['markdown', 'terminal', 'png'], default='markdown')
-    p.add_argument('--output')
+    p.add_argument('--output', help='Root directory for stored runs')
+    p.add_argument('--continue-from', help='Prior simulation run ID under --output')
+    p.add_argument('--elapsed-periods', type=float, help='Total elapsed periods since project start')
+    p.add_argument('--completed-tasks', type=int, help='Total completed tasks so far')
+    p.add_argument('--remaining-tasks', type=int, help='Known remaining tasks for a new synthetic graph')
     p.add_argument('--seed', type=int)
     return p
 
@@ -65,6 +71,33 @@ def distribution_chart(samples):
 
 
 def run(args, parser):
+    parent = None
+    if args.continue_from:
+        if not args.output:
+            parser.error('--continue-from requires --output')
+        try:
+            parent = load_run(args.output, args.continue_from, 'simulate')
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.elapsed_periods is None or args.completed_tasks is None or args.remaining_tasks is None:
+            parser.error('--continue-from requires --elapsed-periods, --completed-tasks and --remaining-tasks')
+        if not isinstance(parent.get('config'), dict) or not isinstance(parent.get('summary'), dict) or any(not isinstance(parent['summary'].get(name, {}).get('total', {}).get(label), (int, float)) for name in ('Best', 'Nominal', 'Worst') for label in ('p50', 'p80', 'p90')):
+            parser.error('Snapshot is missing simulation configuration or summary')
+        prior = parent.get('progress') or {}
+        if args.elapsed_periods < prior.get('elapsed_periods', 0) or args.completed_tasks < prior.get('completed_tasks', 0):
+            parser.error('elapsed periods and completed tasks cannot decrease from the previous run')
+    elif any(v is not None for v in (args.elapsed_periods, args.completed_tasks, args.remaining_tasks)):
+        parser.error('progress inputs require --continue-from')
+    if args.elapsed_periods is not None and (not math.isfinite(args.elapsed_periods) or args.elapsed_periods < 0):
+        parser.error('--elapsed-periods must be finite and non-negative')
+    if args.completed_tasks is not None and (args.completed_tasks < 0 or args.remaining_tasks < 0):
+        parser.error('task counts must be non-negative')
+    defaults = {'tasks_per_period': 1.0, 'days_per_period': None, 'pattern': 'complex', 'scale': 'medium', 'uncertainty': 'medium', 'rework_rate': .15, 'team_size': 2, 'iterations': 2000}
+    for key, default in defaults.items():
+        if getattr(args, key) is None:
+            setattr(args, key, parent['config'].get(key, default) if parent else default)
+    if args.seed is None:
+        args.seed = secrets.randbits(64)
     if args.team_size < 1 or args.iterations < 1:
         parser.error('--team-size and --iterations must be positive')
     if not math.isfinite(args.rework_rate) or not 0 <= args.rework_rate <= 1:
@@ -79,7 +112,7 @@ def run(args, parser):
     rows, samples = [], {}
     representative = None
     for name, disc, rw, gf in [('Best', discovery * .5, min(args.rework_rate * .25, .049), .6), ('Nominal', discovery, args.rework_rate, 1), ('Worst', min(1, discovery * 1.5), min(1, max(.25, args.rework_rate * 1.5)), 1.5)]:
-        results = [simulate(generate(args.pattern, args.scale), args.team_size, disc, rw, gf, rng, task_periods=task_periods) for _ in range(args.iterations)]
+        results = [simulate(generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, rng, task_periods=task_periods) for _ in range(args.iterations)]
         values = sorted(result.duration for result in results)
         samples[name] = values
         if name == 'Nominal':
@@ -90,10 +123,10 @@ def run(args, parser):
         rows.append(f'| {name} | ' + ' | '.join(cells) + f' | {statistics.mean(values):.1f} | {statistics.pstdev(values):.1f} |')
     # Independent samples for a comparative staffing estimate, with a separate reproducible RNG.
     sensitivity_rng = random.Random(args.seed)
-    doubled = sorted(simulate(generate(args.pattern, args.scale), args.team_size * 2, discovery, args.rework_rate, 1, sensitivity_rng, task_periods=task_periods).duration for _ in range(args.iterations))
+    doubled = sorted(simulate(generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, sensitivity_rng, task_periods=task_periods).duration for _ in range(args.iterations))
     baseline = percentile(samples['Nominal'], .8)
-    change = (baseline - percentile(doubled, .8)) / baseline * 100
-    if args.format == 'png':
+    change = (baseline - percentile(doubled, .8)) / baseline * 100 if baseline else 0.0
+    def write_png(path):
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         for name, values in samples.items():
@@ -101,10 +134,18 @@ def run(args, parser):
         ax.set(xlabel='Periods', ylabel='Samples', title=f'Structural simulation ({args.tasks_per_period:g} reference tasks per period per member)' + (f' (1 period ≈ {args.days_per_period:g} days)' if args.days_per_period is not None else ''))
         ax.legend()
         fig.tight_layout()
-        fig.savefig(args.output)
+        fig.savefig(path)
         plt.close(fig)
-        return 0
-    lines = ['# Structural simulation', '', f'Pattern: {args.pattern}; scale: {args.scale}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', f'Nominal staffing sensitivity: doubling team size to {args.team_size * 2} changes P80 by {change:+.1f}% reduction (independent Monte Carlo estimates).', '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({representative.gate_time / representative.duration * 100:.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    lines = ['# Structural simulation', '', f'Pattern: {args.pattern}; scale: {args.scale}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', f'Nominal staffing sensitivity: doubling team size to {args.team_size * 2} changes P80 by {change:+.1f}% reduction (independent Monte Carlo estimates).', '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    if parent:
+        elapsed = args.elapsed_periods
+        lines.insert(5, 'The forecast table and distribution describe remaining time, not time since project start.')
+        lines += ['', '## Progress and comparison', '', f'Elapsed: {duration(elapsed, args.days_per_period)}; completed tasks: {args.completed_tasks}; known remaining tasks: {args.remaining_tasks}.', 'A new synthetic graph is generated for the remaining tasks. Completed task identities, dependencies, and work in progress are unknown; this is not a continuation of the previous simulated graph.', '', '| Scenario | Percentile | Previous total | Remaining | Updated total |', '| --- | --- | --- | --- | --- |']
+        for name, values in samples.items():
+            for label, q in (('p50', .5), ('p80', .8), ('p90', .9)):
+                previous = parent['summary'][name]['total'][label]
+                current = percentile(values, q)
+                lines.append(f'| {name} | {label.upper()} | {duration(previous, args.days_per_period)} | {duration(current, args.days_per_period)} | {duration(elapsed + current, args.days_per_period)} |')
     if args.days_per_period is not None:
         lines.insert(3, f'Approximate conversion: 1 period = {args.days_per_period:g} days; conversions use unrounded values and no calendar or holidays are applied.')
     values = samples['Nominal']
@@ -113,9 +154,9 @@ def run(args, parser):
               f'In the Nominal scenario, about 50% of simulated projects finished within {p50}, '
               f'80% within {p80}, and 90% within {p90}.', '',
               'These results depend on the assumptions used in the simulation and do not guarantee actual completion times.']
-    if args.format == 'markdown':
+    if args.format == 'markdown' or args.output:
         lines += ['', *distribution_chart(samples)]
-    if args.format == 'markdown':
+    if (args.format == 'markdown' or args.output) and representative.nodes:
         lines += ['', '## Representative topology', '', '```mermaid', 'flowchart LR']
         for i, node in enumerate(representative.nodes):
             lines.append(f'    N{i}["{node.name}"]')
@@ -128,7 +169,24 @@ def run(args, parser):
         lines += ['    classDef review fill:#ffe4a3,stroke:#b76e00', '    classDef critical stroke:#e74c3c,stroke-width:3px', '```']
     report = '\n'.join(lines) + '\n'
     if args.output:
-        Path(args.output).write_text(report, encoding='utf-8')
+        elapsed = args.elapsed_periods or 0
+        config = {key: getattr(args, key) for key in defaults}
+        summary = {name: {'remaining': {f'p{int(q*100)}': percentile(values, q) for q in (.5, .8, .9)},
+                          'total': {f'p{int(q*100)}': elapsed + percentile(values, q) for q in (.5, .8, .9)}} for name, values in samples.items()}
+        snapshot = {'parent_run_id': args.continue_from, 'config': config, 'seed': args.seed,
+                    'progress': {'elapsed_periods': elapsed, 'completed_tasks': args.completed_tasks or 0,
+                                 'remaining_tasks': args.remaining_tasks},
+                    'samples': samples, 'summary': summary,
+                    'representative': {'duration': representative.duration, 'gate_time': representative.gate_time,
+                        'nodes': [vars(node) for node in representative.nodes], 'critical_path': representative.critical_path,
+                        'resource_edges': representative.resource_edges}}
+        try:
+            path, run_id = save_run(args.output, 'simulate', snapshot, report, write_png if args.format == 'png' else None)
+        except (OSError, ValueError) as exc:
+            parser.error(f'Cannot save run: {exc}')
+        print(f'Run ID: {run_id}\nReport: {path / "report.md"}\nSnapshot: {path / "snapshot.json"}')
+        if args.format == 'png':
+            print(f'Chart: {path / "chart.png"}')
     else:
         print(report, end='')
     return 0

@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import argparse
 import math
-from pathlib import Path
 from .lognormal import percentile_days
 from .params import DEFAULT_BEST_FACTOR, DEFAULT_SIGMA, DEFAULT_WORST_FACTOR, params_from_mode_and_sigma
 from .render import render_ascii, render_matplotlib, render_markdown
 from .units import positive_float
+from .storage import save_run
 
 
 def _build_parser():
@@ -22,7 +22,7 @@ def _build_parser():
     predict.add_argument('--worst-factor', type=float, default=DEFAULT_WORST_FACTOR)
     predict.add_argument('--sigma', type=float, default=DEFAULT_SIGMA)
     predict.add_argument('--format', choices=['terminal', 'markdown'], default='terminal')
-    predict.add_argument('--output', '-o', help='Destination for image or Markdown report')
+    predict.add_argument('--output', '-o', help='Root directory for stored runs')
     predict.add_argument('--show', action='store_true', help='Show the chart in a window')
     from .simulation.cli import configure
     configure(subs)
@@ -56,17 +56,26 @@ def main(argv=None):
     report = render_markdown(scenarios, periods=args.periods, best_factor=args.best_factor,
                              worst_factor=args.worst_factor, actual_periods=args.actual_periods,
                              days_per_period=args.days_per_period)
-    if args.format == 'markdown':
-        if args.output:
-            Path(args.output).write_text(report, encoding='utf-8')
-        else:
-            print(report, end='')
+    if args.output:
+        config = {key: getattr(args, key) for key in ('periods', 'actual_periods', 'days_per_period', 'best_factor', 'worst_factor', 'sigma', 'distribution')}
+        snapshot = {'config': config, 'scenarios': {name: {'mu': params.mu, 'sigma': params.sigma, 'percentiles': percentiles} for name, (params, percentiles) in scenarios.items()}}
+        def write_png(path):
+            render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, output_path=str(path), show=args.show)
+        try:
+            path, run_id = save_run(args.output, 'predict', snapshot, report, write_png if args.format == 'terminal' else None)
+        except (OSError, ValueError) as exc:
+            predict_parser.error(f'Cannot save run: {exc}')
+        print(f'Run ID: {run_id}\nReport: {path / "report.md"}\nSnapshot: {path / "snapshot.json"}')
+        if args.format == 'terminal':
+            print(f'Chart: {path / "chart.png"}')
+    elif args.format == 'markdown':
+        print(report, end='')
     else:
         print(report.split('## Completion distribution')[0], end='')
         if args.actual_periods is not None:
             print('\n## Retrospective (Nominal)' + report.split('## Retrospective (Nominal)')[1], end='')
-        if args.output or args.show:
-            render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, output_path=args.output, show=args.show)
+        if args.show:
+            render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, show=True)
         else:
             print(render_ascii(scenarios, actual_periods=args.actual_periods))
     return 0

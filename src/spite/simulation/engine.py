@@ -20,8 +20,12 @@ class Result:
     resource_edges: list[tuple[int, int]]
 
 
-def generate(pattern, scale):
+def generate(pattern, scale, task_count=None):
     n = {'small': 8, 'medium': 20, 'large': 40}[scale]
+    if task_count is not None:
+        n = task_count
+    if n == 0:
+        return []
     nodes = [Node('Start', 'task', ())]
     for i in range(1, n):
         if pattern == 'linear':
@@ -40,6 +44,8 @@ def generate(pattern, scale):
 def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0):
     """Simulate a DAG and retain an execution graph including resource contention."""
     nodes = list(nodes)
+    if not nodes:
+        return Result(0.0, [], [], 0.0, [])
     original = list(nodes)
     children = [[] for _ in nodes]
     remaining = [len(n.deps) for n in nodes]

@@ -23,9 +23,11 @@ class PredictTests(unittest.TestCase):
 
     def test_retrospective_and_file(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'report.md'
-            self.assertEqual(self.run_cli(self.args + ['--format', 'markdown', '--output', str(path), '--actual-periods', '20']), '')
-            report = path.read_text(encoding='utf-8')
+            result = self.run_cli(self.args + ['--format', 'markdown', '--output', directory, '--actual-periods', '20'])
+            run_id = result.splitlines()[0].split(': ', 1)[1]
+            run_path = Path(directory) / 'predict' / run_id
+            self.assertTrue((run_path / 'snapshot.json').exists())
+            report = (run_path / 'report.md').read_text(encoding='utf-8')
             self.assertIn('Actual completion: 20.0 periods', report)
             self.assertIn('Difference from P90:', report)
             self.assertIn('Position in forecast:', report)
