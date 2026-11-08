@@ -26,7 +26,7 @@ def params_from_mode_and_sigma(mode_days: float, sigma: float) -> LogNormalParam
     mode = exp(mu - sigma**2) より mu = ln(mode) + sigma**2。
     """
     if not math.isfinite(mode_days) or mode_days <= 0:
-        raise ValueError("mode_days は正の値である必要があります")
+        raise ValueError("mode_days must be finite and positive")
     if not math.isfinite(sigma) or sigma <= 0:
-        raise ValueError("sigma は正の値である必要があります")
+        raise ValueError("sigma must be finite and positive")
     return LogNormalParams(mu=math.log(mode_days) + sigma**2, sigma=sigma)

@@ -14,7 +14,7 @@ class PredictMarkdownTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(main(self.args + ['--format', 'markdown']), 0)
         report = output.getvalue()
-        self.assertIn('| 通常 | 18.0 (2024-10-04)', report)
+        self.assertIn('| Nominal | 18.0 (2024-10-04)', report)
         self.assertEqual(report.count('    line ['), 3)
         self.assertNotIn('## Retrospective', report)
 
@@ -32,7 +32,7 @@ class PredictMarkdownTests(unittest.TestCase):
     def test_default_retains_terminal_output(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             main(self.args)
-        self.assertIn('凡例:', out.getvalue())
+        self.assertIn('Legend:', out.getvalue())
         self.assertNotIn('```mermaid', out.getvalue())
 
     def test_markdown_show_is_rejected(self):

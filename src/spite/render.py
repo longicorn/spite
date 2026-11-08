@@ -11,7 +11,7 @@ from .lognormal import pdf
 from .params import LogNormalParams
 
 ScenarioMap = dict[str, tuple[LogNormalParams, dict[str, float]]]
-COLORS = {"最善": "tab:green", "通常": "tab:blue", "最悪": "tab:red"}
+COLORS = {"Best": "tab:green", "Nominal": "tab:blue", "Worst": "tab:red"}
 
 
 def render_ascii(
@@ -28,8 +28,8 @@ def render_ascii(
     xs = np.linspace(upper / bins, upper, bins)
     densities = {name: pdf(params, xs) for name, (params, _) in scenarios.items()}
     max_y = max(float(ys.max()) for ys in densities.values()) or 1.0
-    lines = ["凡例: # 最善  + 通常  . 最悪"]
-    symbols = {"最善": "#", "通常": "+", "最悪": "."}
+    lines = ["Legend: # Best  + Nominal  . Worst"]
+    symbols = {"Best": "#", "Nominal": "+", "Worst": "."}
     actual_idx = (
         int(np.abs(xs - actual_days).argmin()) if actual_days is not None else None
     )
@@ -38,9 +38,9 @@ def render_ascii(
             symbols[name] * int(round(float(ys[idx]) / max_y * width))
             for name, ys in densities.items()
         ]
-        line = f"{x:6.1f}稼働日 | " + " | ".join(bars)
+        line = f"{x:6.1f} business days | " + " | ".join(bars)
         if idx == actual_idx:
-            line += f"  ^ 実績 {actual_days}稼働日"
+            line += f"  ^ Actual: {actual_days} business days"
         lines.append(line)
     return "\n".join(lines)
 
@@ -93,19 +93,19 @@ def render_matplotlib(
     xs = np.linspace(upper / 600, upper, 600)
     for name, (params, percentiles) in scenarios.items():
         color = COLORS.get(name, "tab:gray")
-        ax.plot(xs, pdf(params, xs), label=f"{name}シナリオ", color=color)
+        ax.plot(xs, pdf(params, xs), label=f"{name}", color=color)
         for label, value in percentiles.items():
             ax.axvline(value, linestyle="--", alpha=0.45, color=color)
             ax.text(value, 0.96, label.upper(), rotation=90, va="top",
                     color=color, transform=ax.get_xaxis_transform(), fontsize=8)
 
     ax.set_xlim(0, upper)
-    ax.set_xlabel("稼働日数")
-    ax.set_ylabel("確率密度")
-    ax.set_title("対数正規分布による納期予測")
+    ax.set_xlabel("Business days")
+    ax.set_ylabel("Probability density")
+    ax.set_title("Delivery forecast (lognormal)")
     if actual_days is not None:
         ax.axvline(actual_days, color="black", linestyle="-.", linewidth=1.5,
-                   label=f"実績 {actual_days}稼働日")
+                   label=f"Actual: {actual_days} business days")
     if actual_summary is not None and start_date is None:
         fig.text(0.5, 0.01, actual_summary, ha="center", va="bottom", fontsize=10)
     ax.legend()
@@ -115,13 +115,13 @@ def render_matplotlib(
         cells = []
         for scenario, (_, percentiles) in scenarios.items():
             cells.append([scenario] + [
-                f"{percentiles[name]:.1f}稼働日\n"
+                f"{percentiles[name]:.1f} business days\n"
                 f"{add_business_days(start_date, round(percentiles[name])).isoformat()}"
                 for name in names
             ])
         table = table_ax.table(
             cellText=cells,
-            colLabels=["シナリオ"] + [name.upper() for name in names],
+            colLabels=["Scenario"] + [name.upper() for name in names],
             cellLoc="center",
             colWidths=[0.16] + [0.84 / len(names)] * len(names),
             bbox=[0, 0, 1, 1],
@@ -187,7 +187,7 @@ def render_markdown(
     lines.append("```")
     if actual_days is not None:
         planned_days = business_days_between(start_date, deadline)
-        params, percentiles = scenarios["通常"]
+        params, percentiles = scenarios["Nominal"]
         probability = completion_probability(params, actual_days)
         tail = remaining_probability(params, actual_days)
         difference = actual_days - planned_days
