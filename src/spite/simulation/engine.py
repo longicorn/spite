@@ -31,12 +31,13 @@ def generate(pattern, scale):
         else:
             deps = (max(0, i - 3),) if i % 4 else tuple(range(max(0, i - 3), i))
         kind = 'gate' if i % 7 == 0 else 'exploratory' if pattern == 'exploratory' or i % 5 == 0 else 'task'
-        nodes.append(Node(f'{kind.title()} {i}', kind, deps))
-    nodes.append(Node('Integration gate', 'gate', tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))))
+        label = 'Review' if kind == 'gate' else kind.title()
+        nodes.append(Node(f'{label} {i}', kind, deps))
+    nodes.append(Node('Integration review', 'gate', tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))))
     return nodes
 
 
-def simulate(nodes, team_size, discovery, rework, gate_factor, rng):
+def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0):
     """Simulate a DAG and retain an execution graph including resource contention."""
     nodes = list(nodes)
     original = list(nodes)
@@ -47,7 +48,7 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng):
             children[d].append(i)
     ranks = [0.0] * len(nodes)
     for i in reversed(range(len(nodes))):
-        ranks[i] = nodes[i].effort + max((ranks[c] for c in children[i]), default=0)
+        ranks[i] = (nodes[i].effort * task_periods if nodes[i].kind != 'gate' else 1.0) + max((ranks[c] for c in children[i]), default=0)
     ready = [(-ranks[i], i) for i, count in enumerate(remaining) if not count]
     heapq.heapify(ready)
     events = []
@@ -87,7 +88,7 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng):
                 duration = rng.triangular(.25, 2, .7) * gate_factor
             else:
                 available_at, slot, previous = heapq.heappop(slots)
-                duration = rng.triangular(.5, 2, 1) * node.effort
+                duration = rng.triangular(.5, 2, 1) * node.effort * task_periods
                 dependency_ready = max((ends[d] for d in deps), default=0)
                 if previous is not None and available_at > dependency_ready:
                     deps.append(previous)

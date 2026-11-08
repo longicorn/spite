@@ -11,6 +11,26 @@ class SimulationTests(unittest.TestCase):
         parallel = simulate(nodes, 2, 0, 0, 1, random.Random(7))
         self.assertGreater(serial.duration, parallel.duration)
 
+    def test_task_mode_scales_task_and_discovery_durations(self):
+        nodes = [Node('explore', 'exploratory', ())]
+        baseline = simulate(nodes, 1, 1, 0, 1, random.Random(4), task_periods=1)
+        faster = simulate(nodes, 1, 1, 0, 1, random.Random(4), task_periods=.2)
+        self.assertAlmostEqual(faster.duration, baseline.duration * .2)
+
+    def test_rework_duration_uses_task_mode(self):
+        nodes = [Node('work', 'task', ()), Node('review', 'gate', (0,))]
+        full = simulate(nodes, 1, 0, 1, 1, random.Random(4), task_periods=1)
+        short = simulate(nodes, 1, 0, 1, 1, random.Random(4), task_periods=.2)
+        self.assertEqual(len(full.nodes), len(short.nodes))
+        self.assertAlmostEqual(short.gate_time, full.gate_time)
+        self.assertAlmostEqual(short.duration - short.gate_time, (full.duration - full.gate_time) * .2)
+
+    def test_task_mode_does_not_change_review_wait(self):
+        nodes = [Node('review', 'gate', ())]
+        baseline = simulate(nodes, 1, 0, 0, 1, random.Random(4), task_periods=1)
+        faster = simulate(nodes, 1, 0, 0, 1, random.Random(4), task_periods=.2)
+        self.assertEqual(baseline.duration, faster.duration)
+
     def test_discovery_blocks_successors(self):
         nodes = [Node('explore', 'exploratory', ()), Node('finish', 'task', (0,))]
         result = simulate(nodes, 1, 1, 0, 1, random.Random(4))
@@ -43,7 +63,7 @@ class SimulationTests(unittest.TestCase):
         curves = [line for line in chart if line.startswith('    line [')]
         self.assertEqual(len(curves), 3)
         self.assertEqual(len(set(curves)), 3)
-        self.assertIn('    x-axis "Business days" 0 --> 10', chart)
+        self.assertIn('    x-axis "Periods" 0 --> 10', chart)
 
     def test_distribution_chart_accepts_single_identical_samples(self):
         chart = distribution_chart({name: [3] for name in ('Best', 'Nominal', 'Worst')})
