@@ -2,7 +2,7 @@
 
 [日本語版 (Japanese)](adr.ja.md)
 
-Decisions for the prediction model and retrospective evaluation. See the [Spite ADR](../adr.md) for shared business-day calculation.
+Decisions for the prediction model and retrospective evaluation. See the [Spite ADR](../adr.md) for shared duration units.
 
 ---
 
@@ -19,7 +19,7 @@ Furthermore, communicating a single distribution can fail to reflect external sc
 ### Decision
 1. **Adopt the Lognormal Distribution** as the primary baseline distribution family for lead time modeling.
 2. **Derive Parameters from Mode and Sigma**:
-   - The user inputs the expected completion duration in working business days, which is set as the distribution's mode (peak probability density).
+   - The user inputs the expected completion duration in abstract periods, which is set as the distribution's mode (peak probability density).
    - A default shape parameter $\sigma = 0.5$ is adopted across all scenarios.
    - The log-scale mean is calculated as:
      $$\mu = \ln(\text{mode}) + \sigma^2$$
@@ -47,13 +47,13 @@ Additionally, completed projects with severe delays may fall far into the tail o
 
 ### Decision
 1. **Benchmark Against the Nominal Scenario**:
-   - In retrospective mode (`--actual-end-date`), numerical evaluations (deviations, percentiles, milestones) are evaluated strictly against the **Nominal scenario** distribution.
+   - In retrospective mode (`--actual-periods`), numerical evaluations (deviations, percentiles, milestones) are evaluated strictly against the **Nominal scenario** distribution.
    - Best and Worst scenarios remain visible on charts for visual comparison of spread, but do not generate secondary evaluation metrics.
 2. **Cumulative Distribution Function (CDF) for Percentile**:
    - The actual lead time is mapped to its percentile on the Nominal CDF:
      $$\text{Percentile} = F_{\text{nominal}}(\text{actual\_days})$$
 3. **P90 and P99.9 Tail Evaluations**:
-   - Calculate the delta between the actual working days and the Nominal P90 milestone.
+   - Calculate the delta between the actual periods and the Nominal P90 milestone.
    - If the actual outcome exceeds the 99.9th percentile ($F_{\text{nominal}} > 0.999$), display it as "exceeding P99.9" and calculate the residual tail probability using the Survival Function (SF, $1 - \text{CDF}$) to indicate extreme outliers.
 4. **Single-Project Scope**:
    - Retrospective evaluation is currently designed for single-project reflection, not for automatic Bayesian updating of hyperparameters ($\sigma$, factors).

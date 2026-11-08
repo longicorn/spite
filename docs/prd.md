@@ -2,21 +2,8 @@
 
 [日本語版 (Japanese)](prd.ja.md)
 
-## Vision
+Spite is an experimental tool for forecasting software delivery as a probability distribution. It helps teams compare assumptions and explain uncertainty.
 
-Spite is an experimental tool for forecasting software delivery as a probability distribution. It helps teams communicate uncertainty, compare assumptions, and evaluate outcomes against forecasts. It focuses on elapsed business days rather than subjective estimation units.
+[Predict](predict/prd.md) uses an expected duration as the mode of a lognormal distribution and supports retrospective evaluation. [Simulation](simulation/prd.md) models dependencies, resource constraints, discovery and rework.
 
-## Users and use cases
-
-Engineering managers, technical leads, and teams use Spite to forecast delivery and explain uncertainty to stakeholders. They can compare scenarios, identify possible delays, and review a completed project's actual delivery against an earlier prediction.
-
-## Capabilities
-
-- [Predict](predict/prd.md) builds a lognormal forecast from a target deadline and supports retrospective evaluation against actual completion.
-- [Simulation](simulation/prd.md) models project structure, resource constraints, discovery, and rework to produce empirical completion distributions.
-
-Both capabilities report lead times in business days. The [shared ADR](adr.md) describes the current calendar convention. Feature-specific documents define their inputs, outputs, limitations, and planned work.
-
-## Shared scope
-
-Weekends are excluded from business days; holidays and configurable team calendars are not currently supported. Automatic calibration from historical project data and persistent project history remain future work.
+Both use abstract periods. The user defines what a period means, such as a sprint. An optional days-per-period multiplier displays an approximate duration; Spite does not calculate calendar dates or holidays. See the [shared ADR](adr.md). Point-based work and calibration from project data are future work, not current simulation inputs.

@@ -11,7 +11,7 @@ In software development forecasting, traditional techniques typically follow one
 However, real-world software engineering suffers from deep structural uncertainty—what can be described as a **Fog of War**:
 - **Dynamic Task Discovery**: Many tasks (Unknown Unknowns) and hidden dependencies are only uncovered as design, investigation, or implementation proceeds.
 - **Rework & Iteration**: Code review rejections, specification mismatches, and regression defects trigger circular rework loops rather than simple acyclic flows.
-- **Gate Waiting & External Dependencies**: Review queues, architecture approvals, customer acceptance, and external API releases create non-linear waiting times that cannot be compressed simply by adding developers.
+- **Review and Approval Waiting**: Review queues, architecture approvals, customer acceptance, and external API releases create non-linear waiting times that cannot be compressed simply by adding developers.
 - **Concurrency Bottlenecks**: The relationship between team size and duration is bounded by Amdahl's Law and Brooks's Law, determined by serial bottlenecks and merge/integration complexity.
 
 The **Simulation Module** (`/simulation`) introduces a structural simulation engine based on the **Lane-Model** concept. Instead of assuming a fixed graph or an arbitrary parametric distribution, the module generates ensembles of hypothetical project topologies, simulates resource-constrained execution across scenarios, and outputs empirical completion distributions alongside shareable structured Markdown and Mermaid diagrams.
@@ -31,13 +31,13 @@ The **Simulation Module** (`/simulation`) introduces a structural simulation eng
 Before project kickoff, users define high-level assumptions (scale, uncertainty, structural pattern, team size). The engine generates thousands of simulated project topologies for Best, Nominal, and Worst scenarios, computing empirical P50, P80, and P90 lead times.
 
 #### UC-2: Staffing & Resource Sensitivity Analysis
-Teams evaluate the impact of changing team size (e.g., 1 developer vs. 2 vs. 4 developers) on delivery percentiles to identify concurrency saturation points caused by serial chains or Gate bottlenecks.
+Teams evaluate the impact of changing team size (e.g., 1 developer vs. 2 vs. 4 developers) on delivery percentiles to identify concurrency saturation points caused by serial chains or review and approval bottlenecks.
 
 #### UC-3: Iterative Sprint Re-forecasting (In-flight Updating)
-As development progresses, completed nodes and elapsed business days are locked as historical facts. The remaining unexplored graph is re-simulated to update projected completion distributions without rewriting the entire baseline.
+As development progresses, completed nodes and elapsed periods are locked as historical facts. The remaining unexplored graph is re-simulated to update projected completion distributions without rewriting the entire baseline.
 
 #### UC-4: Shareable Markdown & Mermaid Reporting
-Teams generate structured Markdown reports with embedded Mermaid flowcharts representing typical project topologies, critical paths, and Gate bottlenecks, allowing seamless diff-tracking and review directly within Git PRs and team wikis.
+Teams generate structured Markdown reports with embedded Mermaid flowcharts representing typical project topologies, critical paths, and review and approval bottlenecks, allowing seamless diff-tracking and review directly within Git PRs and team wikis.
 
 ---
 
@@ -52,12 +52,13 @@ uv run spite simulate [OPTIONS]
 ```
 
 #### Core Inputs & Parameters
-- `--start-date` (YYYY-MM-DD, Optional, Default: today): Starting date for business day mapping.
+- `--days-per-period` (positive number, optional): Approximate days per period; no calendar or holiday calculation.
 - `--pattern` (Enum: `linear`, `parallel`, `complex`, `exploratory`, Default: `complex`): Structural topology template.
 - `--scale` (Enum: `small`, `medium`, `large`, Default: `medium`): Base scope indicating approximate expected node volume.
 - `--uncertainty` (Enum: `low`, `medium`, `high`, Default: `medium`): Propensity to discover hidden nodes and edges during execution.
-- `--rework-rate` (Float: `0.0` to `1.0`, Default: `0.15`): Probability of rework triggered after Gate evaluations.
+- `--rework-rate` (Float: `0.0` to `1.0`, Default: `0.15`): Probability of rework triggered after review decisions.
 - `--team-size` (Integer, Default: `2`): Concurrency limit for parallel active tasks.
+- `--tasks-per-period` (positive number, default: `1`): Reference task rate per team member. Its reciprocal is the most likely task duration in periods; it does not guarantee completed throughput. Task, discovery, and rework durations use a triangular distribution from 0.5 to 2 times this duration, with its peak at that duration. Review waiting times use a separate distribution.
 - `--iterations` (Integer, Default: `2000`): Number of Monte Carlo iterations per scenario.
 - `--format` (Enum: `markdown`, `terminal`, `png`, Default: `markdown`): Primary output presentation format.
 - `--output` (Path, Optional): File destination to write the simulation report (e.g., `--output report.md`).
@@ -72,13 +73,13 @@ Rather than randomizing only duration, the engine generates dynamic project grap
 | :--- | :--- | :--- |
 | **Linear (`linear`)** | Strictly sequential chains ($A \to B \to C$) with conditional rework | Deep investigation, sequential refactoring, rigid single-track pipeline |
 | **Parallel (`parallel`)** | High branching factor ($A \to \{B, C, D\} \to \text{Merge}$) | Modular multi-component feature additions, independent service development |
-| **Complex (`complex`)** | Diamond shapes, staggered dependencies, Gate reviews, and integration merges | Typical multi-tier feature development with frontend/backend/DB dependencies |
+| **Complex (`complex`)** | Diamond shapes, staggered dependencies, reviews, and integration merges | Typical multi-tier feature development with frontend/backend/DB dependencies |
 | **Exploratory (`exploratory`)** | High Fog of War, dynamic node decomposition, discovery of hidden dependencies | Legacy code overhaul, uncharted architectural research, zero-to-one exploration |
 
 #### Scenario Calibration
-- **Best Scenario**: Low uncertainty (few hidden nodes), minimal rework probability ($< 5\%$), fast Gate turnarounds.
+- **Best Scenario**: Low uncertainty (few hidden nodes), minimal rework probability ($< 5\%$), fast review turnarounds.
 - **Nominal Scenario**: Standard parameters based on user inputs.
-- **Worst Scenario**: High uncertainty ($+50\%$ discovered nodes), elevated rework rate ($25-40\%$), prolonged Gate waiting times.
+- **Worst Scenario**: High uncertainty ($+50\%$ discovered nodes), elevated rework rate ($25-40\%$), prolonged review waiting times.
 
 ---
 
@@ -87,9 +88,9 @@ Rather than randomizing only duration, the engine generates dynamic project grap
 Each simulated iteration executes the generated graph under resource and dependency constraints:
 1. **Node Duration Sampling**: Each node's required effort is sampled from an underlying distribution (e.g., lognormal or triangular based on node complexity).
 2. **Resource Queuing**: Available team capacity (`--team-size`) is allocated to ready nodes. If ready nodes exceed team size, nodes queue based on critical-path priority.
-3. **Gate Evaluation & Waiting**: Upon reaching a Gate, mandatory review/approval latency is added. A stochastic check determines whether the Gate passes or triggers a rework loop back to upstream nodes.
+3. **Review and Approval Waiting**: A review adds waiting time without occupying a development team slot. A stochastic decision determines whether it passes or triggers rework of an upstream task.
 4. **Dynamic Discovery**: Completing an exploratory node triggers a probability check to dynamically inject newly discovered child nodes or dependencies into the active execution graph.
-5. **Completion Time Metric**: The total elapsed business days when all sink nodes complete represents the sample duration $T_i$.
+5. **Completion Time Metric**: The total elapsed periods when all sink nodes complete represents the sample duration $T_i$.
 
 ---
 
@@ -98,15 +99,15 @@ Each simulated iteration executes the generated graph under resource and depende
 When `--format markdown` is selected, the tool generates a fully self-contained Markdown report designed for Git version control and PR inclusion:
 
 1. **Executive Summary Table**:
-   - P50 (Median), P80, and P90 completion days and dates for Best, Nominal, and Worst scenarios.
-   - Identified critical path bottleneck summary (e.g., "Review Gate waiting accounted for 32% of critical path").
+   - P50 (Median), P80, and P90 completion durations in periods, with optional approximate days for Best, Nominal, and Worst scenarios.
+   - Identified critical path bottleneck summary (e.g., "Review and approval waiting accounted for 32% of critical path").
 2. **Mermaid Topology Visualization**:
    - A representative project DAG rendered via Mermaid `flowchart LR` / `flowchart TD`.
-   - Node styling highlighting the critical path (`style NodeX stroke:#e74c3c,stroke-width:3px`) and Gate bottlenecks.
+   - Node styling highlighting the critical path (`style NodeX stroke:#e74c3c,stroke-width:3px`) and review and approval bottlenecks.
 3. **Empirical Distribution Representation**:
-   - Percentile tables and ASCII / Mermaid `xychart-beta` bar charts displaying the shape of the simulated empirical completion distribution.
+   - Percentile tables, a plain-language explanation of the Nominal P50, P80 and P90, and a Mermaid `xychart-beta` chart of the simulated empirical distributions. Explain that results depend on assumptions and do not guarantee actual completion times.
 4. **Actionable Recommendations**:
-   - Staffing sensitivity assessment (e.g., "Increasing team size from 2 to 4 yields only a 6% P80 reduction due to linear Gate dependencies").
+   - Staffing sensitivity assessment (e.g., "Increasing team size from 2 to 4 yields only a 6% P80 reduction due to linear review dependencies").
 
 ---
 

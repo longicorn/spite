@@ -8,6 +8,8 @@
 - **Target Path**: `/simulation`
 - **Related Documents**: [Product Requirements Document (PRD)](prd.md)
 
+**Terminology update**: Reports call `GateNode` a review. It represents time waiting for review or approval, without occupying a development team slot; rejection can trigger rework. The internal `gate` name remains in the implementation. This simplified behavior does not represent every meaning of Gate in the Lane Model.
+
 ---
 
 ## 1. Context & Problem Statement

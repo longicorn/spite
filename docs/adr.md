@@ -6,10 +6,23 @@ This document records shared architectural decisions. See the [Predict ADR](pred
 
 ---
 
+## ADR-0004: Abstract periods and optional day conversion
+
+### Status
+Accepted; supersedes ADR-0003.
+
+### Decision
+Both features express duration in abstract periods. Users may supply approximate days per period as a simple multiplier. Spite does not calculate calendar dates or holidays. Point-based work and throughput calibration are not yet implemented.
+
+### Consequences
+Forecasts can be compared without implying calendar precision. A real completion date requires separate consideration of calendars and team circumstances.
+
+---
+
 ## ADR-0003: Business Day Calculation Excluding Weekends Without Holiday Calendars
 
 ### Status
-Accepted
+Superseded by ADR-0004.
 
 ### Context
 Project lead times need to be mapped between calendar dates (used by human planning) and continuous or discrete working durations (used in statistical distribution calculations).
