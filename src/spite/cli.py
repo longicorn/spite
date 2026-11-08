@@ -73,6 +73,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     predict.add_argument("--output", "-o", help="グラフを画像ファイルに保存するパス")
     predict.add_argument("--show", action="store_true", help="グラフをウィンドウで表示する")
+    from .simulation.cli import configure
+    configure(subparsers)
     return parser, predict
 
 
@@ -178,6 +180,9 @@ def _print_report(
 def main(argv: list[str] | None = None) -> int:
     parser, predict_parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "simulate":
+        from .simulation.cli import run
+        return run(args, parser)
     if args.command != "predict":
         parser.print_help()
         return 0
