@@ -11,7 +11,7 @@
 - `--days-per-period`: optional positive multiplier for approximate day equivalents. No calendar or holiday calculation is performed.
 - `--best-factor` and `--worst-factor`: scenario mode multipliers, defaulting to 0.8 and 1.5.
 - `--sigma`: positive lognormal shape parameter, default 0.5.
-- `--format`: `terminal` (default) or `markdown`. `--output` writes an image in terminal mode or Markdown in Markdown mode; `--show` displays the image and cannot be combined with Markdown.
+- `--format`: `terminal` (default) or `markdown`. `--output` selects a root directory for a new run containing `report.md`, `snapshot.json`, and, in terminal mode, `chart.png`; `--show` displays the image and cannot be combined with Markdown.
 - `--distribution`: currently `lognormal` only.
 
 ## Outputs

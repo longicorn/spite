@@ -11,7 +11,7 @@
 - `--days-per-period`：概算日数に換算するための正の倍率。任意指定であり、カレンダーや祝日は計算しません。
 - `--best-factor`と`--worst-factor`：各シナリオの最頻値に適用する係数。既定値は0.8と1.5です。
 - `--sigma`：正の対数正規分布の形状パラメータ。既定値は0.5です。
-- `--format`：`terminal`が既定で、`markdown`も選択できます。`--output`はterminalモードでは画像、Markdownモードではレポートを保存します。`--show`は画像を表示し、Markdownとは併用できません。
+- `--format`：`terminal`が既定で、`markdown`も選択できます。`--output`は保存先ルートを指定します。実行ごとのディレクトリに`report.md`と`snapshot.json`を保存し、terminalモードでは`chart.png`も保存します。`--show`は画像を表示し、Markdownとは併用できません。
 - `--distribution`：現在は`lognormal`のみを指定できます。
 
 ## 出力

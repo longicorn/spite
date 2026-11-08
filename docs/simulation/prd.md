@@ -34,7 +34,7 @@ Before project kickoff, users define high-level assumptions (scale, uncertainty,
 Teams evaluate the impact of changing team size (e.g., 1 developer vs. 2 vs. 4 developers) on delivery percentiles to identify concurrency saturation points caused by serial chains or review and approval bottlenecks.
 
 #### UC-3: Iterative Sprint Re-forecasting (In-flight Updating)
-As development progresses, completed nodes and elapsed periods are locked as historical facts. The remaining unexplored graph is re-simulated to update projected completion distributions without rewriting the entire baseline.
+As development progresses, cumulative elapsed periods and completed task counts are recorded. A new synthetic graph is generated from the known remaining task count; actual completed dependencies and in-progress work are not reconstructed.
 
 #### UC-4: Shareable Markdown & Mermaid Reporting
 Teams generate structured Markdown reports with embedded Mermaid flowcharts representing typical project topologies, critical paths, and review and approval bottlenecks, allowing seamless diff-tracking and review directly within Git PRs and team wikis.
@@ -61,7 +61,8 @@ uv run spite simulate [OPTIONS]
 - `--tasks-per-period` (positive number, default: `1`): Reference task rate per team member. Its reciprocal is the most likely task duration in periods; it does not guarantee completed throughput. Task, discovery, and rework durations use a triangular distribution from 0.5 to 2 times this duration, with its peak at that duration. Review waiting times use a separate distribution.
 - `--iterations` (Integer, Default: `2000`): Number of Monte Carlo iterations per scenario.
 - `--format` (Enum: `markdown`, `terminal`, `png`, Default: `markdown`): Primary output presentation format.
-- `--output` (Path, Optional): File destination to write the simulation report (e.g., `--output report.md`).
+- `--output` (Path, optional): Root directory for per-run `report.md` and `snapshot.json`; PNG format also saves `chart.png`.
+- `--continue-from` (run ID, optional): Load a prior simulation from the output root. Requires cumulative `--elapsed-periods`, `--completed-tasks`, and known `--remaining-tasks`. Remaining tasks form a new synthetic graph; completed dependencies and work in progress are unknown. Settings are inherited unless overridden. Reports compare total P50, P80 and P90 against the prior run and show remaining and total forecasts.
 
 ---
 
@@ -138,8 +139,8 @@ The `/simulation` capability resides in `src/spite/simulation/`:
 - CLI command `spite simulate`.
 
 ### Phase 2: In-flight Calibration & History (Future)
-- Splicing historical completed actuals into the simulation to run mid-project re-forecasting.
-- Storage of simulation snapshots for historical accuracy retrospectives.
+- Re-forecasting with actual task identities, dependencies, and work-in-progress state.
+- Historical accuracy retrospectives across saved forecasts.
 
 ### Phase 3: External Integration (Future)
 - Ingesting GitHub / GitLab issue graphs or PR reviews to calibrate initial pattern parameters.
