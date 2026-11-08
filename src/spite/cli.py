@@ -26,12 +26,17 @@ def _build_parser():
     predict.add_argument('--show', action='store_true', help='Show the chart in a window')
     from .simulation.cli import configure
     configure(subs)
+    from .history import configure as configure_history
+    configure_history(subs)
     return parser, predict
 
 
 def main(argv=None):
     parser, predict_parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == 'history':
+        from .history import run
+        return run(args, parser)
     if args.command == 'simulate':
         from .simulation.cli import run
         return run(args, parser)
