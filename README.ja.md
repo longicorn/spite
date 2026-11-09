@@ -38,6 +38,43 @@ uv run spite simulate --output tmp/spite/ --continue-from YOUR_RUN_ID --elapsed-
 
 再予測では把握している残タスクから仮のグラフを作ります。実際の完了済みタスクの依存関係や進行中の作業は復元しません。
 
+### YAMLで指定した構造から予測する
+
+テンプレートを生成し、プロジェクトに合わせて編集してから予測します。
+
+```bash
+uv run spite simulate --template > topology.yaml
+uv run spite simulate --topology topology.yaml --team-size 2 --output tmp/spite/
+```
+
+例えば次のように記述します。
+
+```yaml
+elapsed_periods: 0
+tasks:
+  - id: explore
+    name: 要件を調査
+    kind: exploratory
+    status: pending
+    depends_on: []
+  - id: build
+    name: 実装
+    kind: task
+    status: pending
+    depends_on: [explore]
+  - id: review
+    name: レビュー
+    kind: gate
+    status: pending
+    depends_on: [build]
+```
+
+`elapsed_periods`は開始からの経過periodで、省略時は0です。各タスクには一意な文字列の`id`、`name`、`kind`、`status`、依存先IDのリスト`depends_on`が必要です。`kind`の`task`は開発作業、`exploratory`は追加作業を発見する可能性のある探索、`gate`はレビューや承認の待ちを表します。`status`は`pending`（未完了）または`completed`（完了済み）です。完了済みタスクは依存関係を満たし、再シミュレーションしません。進行中の作業は、残作業だけを表す未完了タスクとして記述します。依存先は存在し、循環してはならず、完了済みタスクは未完了タスクに依存できません。リストの上下は依存関係を意味しないため、`depends_on`で指定します。開始時の予測では、すべてのタスクを未完了にできます。
+
+Git履歴から始める場合は`uv run spite simulate --from-git BASE > topology.yaml`を実行します。`BASE`にはコミット、ブランチ、タグを指定します。`BASE..HEAD`の非マージコミットを1件ずつ完了済みタスクにした下書きが生成されます。依存関係や経過期間は推定されず、未コミットの作業や将来の作業も含まれません。下書きを確認し、依存関係、残作業、探索タスクを追加してから予測してください。
+
+後から予測を更新する場合は、YAMLの状態、残作業、`elapsed_periods`を編集し、再び`--topology`で実行します。レポートには残期間と合計期間が表示されます。YAMLによる予測に`--continue-from`は使えません。`--pattern`と`--scale`はYAMLが構造を指定するため、警告とともに無視されます。代表的な実行図の点線は担当者の空き待ちを表し、タスクの依存関係ではありません。詳しくは[Simulation PRD](docs/simulation/prd.ja.md)を参照してください。
+
 ### マージ後の履歴を調べる
 
 対象リポジトリで**リリース先のブランチ**をチェックアウトして`history`を実行します。分析の終点は現在のブランチのHEADです。`--base`は分析を始める祖先コミットの指定で、マージされた機能ブランチを選択するオプションではありません。
