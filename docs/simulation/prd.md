@@ -149,8 +149,14 @@ Exploratory tasks use existing scenario discovery probabilities; discovered work
 
 ## Model limitations and calibration
 
-Task durations are independently sampled from a bounded triangular distribution, with no project-wide factor for correlated estimation bias. Structural discovery and rework add variability, but the resulting tail is not calibrated against historical outcomes. Different tasks can share real-world risks that this model omits. `predict` and `simulate` use different assumptions, so their percentile ratios are not directly interchangeable.
+By default task durations are independently sampled from a bounded triangular distribution; the optional experimental complexity factor introduces correlated variation. Structural discovery and rework add variability, but the resulting tail is not calibrated against historical outcomes. Different tasks can share real-world risks that this model omits. `predict` and `simulate` use different assumptions, so their percentile ratios are not directly interchangeable.
 
 Investigate project-wide correlated factors using historical projects or documented expert assumptions. Compare observed completion outcomes with forecast percentiles using out-of-sample evaluation; examine sensitivity to the factor distribution, scenario assumptions, discovery and rework before selecting defaults. Avoid counting the same risk twice. No new factor or calibrated accuracy is claimed until supported by evidence.
 
 Staffing sensitivity pairs nominal trials with doubled-team trials using common random values keyed by logical task, discovery and review attempt. Scheduling can still change outcomes; small estimated differences can be sampling noise.
+
+## Experimental project-wide complexity risk
+
+`--complexity-risk` accepts `off` (default), `low`, `medium` or `high`. Each trial draws one factor from a triangular distribution with minimum and mode 1 and maximum 1.25, 1.5 or 2 respectively. Multiply all development task durations, including discovered work and rework, and the scenario discovery probability by this factor; cap the probability at 1. Review waiting and rejection probability are unchanged. Known YAML tasks and preset skeletons are not multiplied. The same factor applies to paired staffing trials.
+
+These ranges are illustrative assumptions, not calibrated probabilities. The factors only increase duration and discovery relative to the base assumptions; they can overlap with other risk settings. Reports disclose the selected level and ranges. The value is saved and inherited on synthetic continuation, and can be overridden with `off`.
