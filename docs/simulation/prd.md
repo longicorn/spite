@@ -68,7 +68,7 @@ uv run spite simulate [OPTIONS]
 
 ### 3.2. Structural Graph Generation Model
 
-Each preset generates a deterministic initial skeleton for a given pattern and scale. Discovery and rework can change its execution graph during a trial:
+By default each preset generates a deterministic initial skeleton for a given pattern and scale. Optional topology variation changes the initial skeleton; discovery and rework can also change the execution graph during a trial:
 
 | Pattern | Topology Characteristics | Representative Software Scenario |
 | :--- | :--- | :--- |
@@ -160,3 +160,7 @@ Staffing sensitivity pairs nominal trials with doubled-team trials using common 
 `--complexity-risk` accepts `off` (default), `low`, `medium` or `high`. Each trial draws one factor from a triangular distribution with minimum and mode 1 and maximum 1.25, 1.5 or 2 respectively. Multiply all development task durations, including discovered work and rework, and the scenario discovery probability by this factor; cap the probability at 1. Review waiting and rejection probability are unchanged. Known YAML tasks and preset skeletons are not multiplied. The same factor applies to paired staffing trials.
 
 These ranges are illustrative assumptions, not calibrated probabilities. The factors only increase duration and discovery relative to the base assumptions; they can overlap with other risk settings. Reports disclose the selected level and ranges. The value is saved and inherited on synthetic continuation, and can be overridden with `off`.
+
+## Experimental preset topology variation
+
+`--topology-variation random` varies preset skeletons per trial; `off` is the default. Linear and parallel retain their fixed chain and fan-out structures. Complex and exploratory select one to three distinct predecessors from up to the three immediately preceding nodes; the integration review depends on all terminal nodes. Node counts and kinds remain fixed. The nominal and doubled-staffing trials share the same skeleton. The seed controls reproducibility. This heuristic is experimental and not calibrated to observed projects. YAML input ignores this option with a warning. Saved runs inherit the setting on synthetic continuation and `off` overrides it.
