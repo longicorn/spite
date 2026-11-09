@@ -14,7 +14,7 @@ However, real-world software engineering suffers from deep structural uncertaint
 - **Review and Approval Waiting**: Review queues, architecture approvals, customer acceptance, and external API releases create non-linear waiting times that cannot be compressed simply by adding developers.
 - **Concurrency Bottlenecks**: The relationship between team size and duration is bounded by Amdahl's Law and Brooks's Law, determined by serial bottlenecks and merge/integration complexity.
 
-The **Simulation Module** (`/simulation`) introduces a structural simulation engine based on the **Lane-Model** concept. Instead of assuming a fixed graph or an arbitrary parametric distribution, the module generates ensembles of hypothetical project topologies, simulates resource-constrained execution across scenarios, and outputs empirical completion distributions alongside shareable structured Markdown and Mermaid diagrams.
+The **Simulation Module** (`/simulation`) introduces a structural simulation engine based on the **Lane-Model** concept. Instead of assuming a fixed graph or an arbitrary parametric distribution, the module simulates project topologies with stochastic discovery and rework, simulates resource-constrained execution across scenarios, and outputs empirical completion distributions alongside shareable structured Markdown and Mermaid diagrams.
 
 ---
 
@@ -28,7 +28,7 @@ The **Simulation Module** (`/simulation`) introduces a structural simulation eng
 ### Key Use Cases
 
 #### UC-1: Structural Forward Forecasting (Project Inception)
-Before project kickoff, users define high-level assumptions (scale, uncertainty, structural pattern, team size). The engine generates thousands of simulated project topologies for Best, Nominal, and Worst scenarios, computing empirical P50, P80, and P90 lead times.
+Before project kickoff, users define high-level assumptions (scale, uncertainty, structural pattern, team size). The engine simulates thousands of executions of a deterministic preset skeleton for Best, Nominal, and Worst scenarios, computing empirical P50, P80, and P90 lead times.
 
 #### UC-2: Staffing & Resource Sensitivity Analysis
 Teams evaluate the impact of changing team size (e.g., 1 developer vs. 2 vs. 4 developers) on delivery percentiles to identify concurrency saturation points caused by serial chains or review and approval bottlenecks.
@@ -68,7 +68,7 @@ uv run spite simulate [OPTIONS]
 
 ### 3.2. Structural Graph Generation Model
 
-Rather than randomizing only duration, the engine generates dynamic project graphs $G \sim P(G \mid X)$ based on structural topology patterns:
+By default each preset generates a deterministic initial skeleton for a given pattern and scale. Optional topology variation changes the initial skeleton; discovery and rework can also change the execution graph during a trial:
 
 | Pattern | Topology Characteristics | Representative Software Scenario |
 | :--- | :--- | :--- |
@@ -77,10 +77,10 @@ Rather than randomizing only duration, the engine generates dynamic project grap
 | **Complex (`complex`)** | Diamond shapes, staggered dependencies, reviews, and integration merges | Typical multi-tier feature development with frontend/backend/DB dependencies |
 | **Exploratory (`exploratory`)** | High Fog of War, dynamic node decomposition, discovery of hidden dependencies | Legacy code overhaul, uncharted architectural research, zero-to-one exploration |
 
-#### Scenario Calibration
+#### Scenario Settings
 - **Best Scenario**: Low uncertainty (few hidden nodes), minimal rework probability ($< 5\%$), fast review turnarounds.
-- **Nominal Scenario**: Standard parameters based on user inputs.
-- **Worst Scenario**: High uncertainty ($+50\%$ discovered nodes), elevated rework rate ($25-40\%$), prolonged review waiting times.
+- **Nominal Scenario**: Standard parameters based on user inputs. Task duration distributions are identical across all scenarios; only discovery, rework and review waiting change.
+- **Worst Scenario**: Discovery probability multiplied by 1.5 (capped at 1), elevated rework probability (at least 25%, capped at 100%), prolonged review waiting times.
 
 ---
 
@@ -115,14 +115,8 @@ When `--format markdown` is selected, the tool generates a fully self-contained 
 ## 4. Technical Architecture
 
 ### 4.1. Module Structure
-The `/simulation` capability resides in `src/spite/simulation/`:
-- `models.py`: Definitions for `Node`, `Edge`, `Gate`, `ProjectGraph`, and `SimulationResult`.
-- `generator.py`: Topology generator producing synthetic project graphs according to patterns and scenario configurations.
-- `engine.py`: Discrete-event / critical-path simulator handling resource allocation, rework loops, and node discovery.
-- `reporters/`:
-  - `markdown.py`: Markdown and Mermaid diagram generator.
-  - `terminal.py`: Terminal summary and ASCII rendering.
-- `cli.py`: Integration with Spite CLI parser.
+
+The implementation resides in `src/spite/simulation/`: `engine.py` generates preset skeletons and simulates execution, `topology.py` validates YAML and generates drafts, and `cli.py` runs scenarios and renders reports.
 
 ### 4.2. Performance Requirements
 - Running 2,000 iterations across 3 scenarios (6,000 graph executions of ~20–50 nodes) MUST complete within 5 seconds on standard developer hardware.
@@ -152,3 +146,21 @@ The `/simulation` capability resides in `src/spite/simulation/`:
 Exploratory tasks use existing scenario discovery probabilities; discovered work blocks immediate successors. Duration, review and rework use existing settings. Invalid YAML topology inputs are rejected with a message identifying the file. With `--topology`, `--pattern` and `--scale` are ignored with a warning; `--continue-from` remains incompatible.
 
 `spite simulate --template` prints an editable example. `spite simulate --from-git BASE` prints a draft containing one completed task per non-merge commit in `BASE..HEAD`, without inferred dependencies or elapsed time. Redirect output to a file and edit it, adding remaining and exploratory work. Uncommitted and future work are absent from history.
+
+## Model limitations and calibration
+
+By default task durations are independently sampled from a bounded triangular distribution; the optional experimental complexity factor introduces correlated variation. Structural discovery and rework add variability, but the resulting tail is not calibrated against historical outcomes. Different tasks can share real-world risks that this model omits. `predict` and `simulate` use different assumptions, so their percentile ratios are not directly interchangeable.
+
+Investigate project-wide correlated factors using historical projects or documented expert assumptions. Compare observed completion outcomes with forecast percentiles using out-of-sample evaluation; examine sensitivity to the factor distribution, scenario assumptions, discovery and rework before selecting defaults. Avoid counting the same risk twice. No new factor or calibrated accuracy is claimed until supported by evidence.
+
+Staffing sensitivity pairs nominal trials with doubled-team trials using common random values keyed by logical task, discovery and review attempt. Scheduling can still change outcomes; small estimated differences can be sampling noise.
+
+## Experimental project-wide complexity risk
+
+`--complexity-risk` accepts `off` (default), `low`, `medium` or `high`. Each trial draws one factor from a triangular distribution with minimum and mode 1 and maximum 1.25, 1.5 or 2 respectively. Multiply all development task durations, including discovered work and rework, and the scenario discovery probability by this factor; cap the probability at 1. Review waiting and rejection probability are unchanged. Known YAML tasks and preset skeletons are not multiplied. The same factor applies to paired staffing trials.
+
+These ranges are illustrative assumptions, not calibrated probabilities. The factors only increase duration and discovery relative to the base assumptions; they can overlap with other risk settings. Reports disclose the selected level and ranges. The value is saved and inherited on synthetic continuation, and can be overridden with `off`.
+
+## Experimental preset topology variation
+
+`--topology-variation random` varies preset skeletons per trial; `off` is the default. Linear and parallel retain their fixed chain and fan-out structures. Complex and exploratory select one to three distinct predecessors from up to the three immediately preceding nodes; the integration review depends on all terminal nodes. Node counts and kinds remain fixed. The nominal and doubled-staffing trials share the same skeleton. The seed controls reproducibility. This heuristic is experimental and not calibrated to observed projects. YAML input ignores this option with a warning. Saved runs inherit the setting on synthetic continuation and `off` overrides it.

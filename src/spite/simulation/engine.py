@@ -1,6 +1,8 @@
 """Resource-constrained discrete-event project simulation."""
 from dataclasses import dataclass
 import heapq
+import hashlib
+import random
 
 
 @dataclass(frozen=True)
@@ -20,7 +22,7 @@ class Result:
     resource_edges: list[tuple[int, int]]
 
 
-def generate(pattern, scale, task_count=None):
+def generate(pattern, scale, task_count=None, topology_rng=None):
     n = {'small': 8, 'medium': 20, 'large': 40}[scale]
     if task_count is not None:
         n = task_count
@@ -32,21 +34,47 @@ def generate(pattern, scale, task_count=None):
             deps = (i - 1,)
         elif pattern == 'parallel':
             deps = (0,)
+        elif topology_rng is not None:
+            candidates = list(range(max(0, i - 3), i))
+            deps = tuple(sorted(topology_rng.sample(candidates, topology_rng.randint(1, len(candidates)))))
         else:
             deps = (max(0, i - 3),) if i % 4 else tuple(range(max(0, i - 3), i))
         kind = 'gate' if i % 7 == 0 else 'exploratory' if pattern == 'exploratory' or i % 5 == 0 else 'task'
         label = 'Review' if kind == 'gate' else kind.title()
         nodes.append(Node(f'{label} {i}', kind, deps))
-    nodes.append(Node('Integration review', 'gate', tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))))
+    if topology_rng is not None and pattern in ('complex', 'exploratory'):
+        used = {dep for node in nodes for dep in node.deps}
+        final_deps = tuple(i for i in range(n) if i not in used)
+    else:
+        final_deps = tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))
+    nodes.append(Node('Integration review', 'gate', final_deps))
     return nodes
 
 
-def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0):
+class PairedRandom:
+    """Reproducible draws addressed by logical event, independent of scheduling order."""
+    def __init__(self, seed):
+        self.seed = seed
+
+    def source(self, key):
+        digest = hashlib.blake2b(repr((self.seed, key)).encode(), digest_size=16).digest()
+        return random.Random(int.from_bytes(digest, 'big'))
+
+
+def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0, complexity_risk="off"):
     """Simulate a DAG and retain an execution graph including resource contention."""
     nodes = list(nodes)
     if not nodes:
         return Result(0.0, [], [], 0.0, [])
     original = list(nodes)
+    keys = [("node", i) for i in range(len(nodes))]
+    def random_source(key):
+        return rng.source(key) if isinstance(rng, PairedRandom) else rng
+    if complexity_risk != "off":
+        upper = {"low": 1.25, "medium": 1.5, "high": 2.0}[complexity_risk]
+        factor = random_source(("complexity",)).triangular(1, upper, 1)
+        task_periods *= factor
+        discovery = min(1.0, discovery * factor)
     children = [[] for _ in nodes]
     remaining = [len(n.deps) for n in nodes]
     for i, node in enumerate(nodes):
@@ -68,9 +96,10 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
     starts = []
     resource_edges = []
 
-    def insert(node, successors, rank, deps):
+    def insert(node, successors, rank, deps, key):
         i = len(nodes)
         nodes.append(node)
+        keys.append(key)
         children.append(successors)
         remaining.append(0)
         ranks.append(rank)
@@ -91,10 +120,10 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
             deps = list(prerequisites[i])
             slot = None
             if node.kind == 'gate':
-                duration = rng.triangular(.25, 2, .7) * gate_factor
+                duration = random_source((keys[i], "duration", attempts[i])).triangular(.25, 2, .7) * gate_factor
             else:
                 available_at, slot, previous = heapq.heappop(slots)
-                duration = rng.triangular(.5, 2, 1) * node.effort * task_periods
+                duration = random_source((keys[i], "duration", attempts[i])).triangular(.5, 2, 1) * node.effort * task_periods
                 dependency_ready = max((ends[d] for d in deps), default=0)
                 if previous is not None and available_at > dependency_ready:
                     deps.append(previous)
@@ -111,7 +140,7 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
         now, execution_id, i, slot = heapq.heappop(events)
         if slot is not None:
             heapq.heappush(slots, (now, slot, execution_id))
-        if nodes[i].kind == 'gate' and attempts[i] < 10 and rng.random() < rework:
+        if nodes[i].kind == 'gate' and attempts[i] < 10 and random_source((keys[i], "rework", attempts[i])).random() < rework:
             attempts[i] += 1
             # Re-execute the latest engineering prerequisite, preserving its effort.
             candidates = [d for d in original[i].deps if original[d].kind != 'gate'] if i < len(original) else []
@@ -119,11 +148,11 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
                 candidates = [j for j in range(min(i, len(original))) if original[j].kind != 'gate']
             target = max(candidates, key=lambda d: ranks[d]) if candidates else None
             source = original[target] if target is not None else Node('Work', 'task', ())
-            insert(Node(f'{source.name} (rework {attempts[i]})', 'task', (), source.effort), [i], ranks[i] + 1, [execution_id])
+            insert(Node(f'{source.name} (rework {attempts[i]})', 'task', (), source.effort), [i], ranks[i] + 1, [execution_id], (keys[i], "rework", attempts[i]))
             prerequisites[i] = []
             continue
-        if nodes[i].kind == 'exploratory' and rng.random() < discovery:
-            insert(Node(f'Discovery {i}', 'task', ()), list(children[i]), ranks[i], [execution_id])
+        if nodes[i].kind == 'exploratory' and random_source((keys[i], "discovery")).random() < discovery:
+            insert(Node(f'Discovery {i}', 'task', ()), list(children[i]), ranks[i], [execution_id], (keys[i], "discovery"))
         for child in children[i]:
             prerequisites[child].append(execution_id)
             remaining[child] -= 1

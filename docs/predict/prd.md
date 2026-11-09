@@ -19,3 +19,7 @@
 P50, P80 and P90 are given in periods for each scenario, with optional approximate days. The plot displays lognormal density. When actual duration is provided, the report compares it with the Nominal mode and P90 and reports its Nominal CDF percentile. For outcomes above P99.9, the survival function reports the remaining tail probability.
 
 The mode and sigma determine the distribution: μ = ln(mode) + σ². Historical calibration and additional distribution families remain future work.
+
+The three scenarios are conditional forecasts with different mode assumptions and the same sigma. Their distributions may overlap; the tool does not combine them into a probability-weighted mixture. The scenarios and sigma are assumptions, not calibrated confidence levels.
+
+For now all scenarios retain the same sigma: there is no calibration evidence for assigning a different width to each. Once sufficient outcomes are available, compare the common-sigma model with scenario-specific widths before changing the defaults.

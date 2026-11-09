@@ -38,6 +38,43 @@ uv run spite simulate --output tmp/spite/ --continue-from YOUR_RUN_ID --elapsed-
 
 An update generates a new synthetic graph for the known remaining tasks; it does not reconstruct the actual completed dependencies or work in progress.
 
+### Forecast from a YAML topology
+
+Generate a template, edit it to describe your project, then run the forecast:
+
+```bash
+uv run spite simulate --template > topology.yaml
+uv run spite simulate --topology topology.yaml --team-size 2 --output tmp/spite/
+```
+
+For example:
+
+```yaml
+elapsed_periods: 0
+tasks:
+  - id: explore
+    name: Investigate requirements
+    kind: exploratory
+    status: pending
+    depends_on: []
+  - id: build
+    name: Implement
+    kind: task
+    status: pending
+    depends_on: [explore]
+  - id: review
+    name: Review
+    kind: gate
+    status: pending
+    depends_on: [build]
+```
+
+`elapsed_periods` is the time already spent since project start; it defaults to zero. Each task needs a unique string `id`, a `name`, a `kind`, a `status` and a `depends_on` list of task IDs. `task` is development work, `exploratory` may discover additional work, and `gate` represents review or approval waiting. Set `status` to `pending` or `completed`: completed tasks satisfy dependencies and are not simulated again. Describe work in progress as a pending task containing only the remaining work. Dependencies must exist, be acyclic, and a completed task cannot depend on a pending task. The list order does not imply dependencies; use `depends_on` to express them. An initial forecast can mark every task pending.
+
+To start from Git history instead, run `uv run spite simulate --from-git BASE > topology.yaml`, replacing `BASE` with a commit, branch or tag. The draft contains one completed task per non-merge commit in `BASE..HEAD`. It does not infer dependencies or elapsed time and cannot include uncommitted or future work. Review the draft and add dependencies, remaining work and exploratory tasks before forecasting.
+
+For a later forecast, edit task statuses, remaining work and `elapsed_periods` in the YAML and run `--topology` again. The report shows remaining and total durations. YAML forecasts cannot use `--continue-from`; `--pattern` and `--scale` are ignored with a warning because the YAML supplies the structure. Dotted arrows in the representative execution diagram show resource waiting, not task dependencies. See the [Simulation PRD](docs/simulation/prd.md) for details.
+
 ### History after merging
 
 Run `history` in the repository with the **release destination branch** checked out. The current branch's HEAD is the end of the analysis. `--base` selects the starting commit, which must be an ancestor of HEAD; it does not select a merged feature branch.
@@ -56,6 +93,14 @@ Each non-merge commit is an observed work unit; merges are counted separately. G
 ### Saved runs
 
 `--output` is a root directory. Each command saves `report.md` and `snapshot.json` under `<root>/<command>/<run-id>/`; some formats also save `chart.png`. Without `--output`, reports are printed in the terminal. Run `uv run spite --help` or a subcommand with `--help` for all options.
+
+## Testing
+
+Run the test suite with the standard-library unittest runner:
+
+```bash
+uv run python -m unittest discover -s tests
+```
 
 ## Documentation
 
