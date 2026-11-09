@@ -57,6 +57,14 @@ uv run spite history --base v1.0 --days-per-period 5 --output tmp/spite/
 
 `--output`にはルートディレクトリを指定します。各コマンドは`<root>/<command>/<run-id>/`に`report.md`と`snapshot.json`を保存し、形式によっては`chart.png`も保存します。省略時はレポートをターミナルに表示します。オプションの一覧は`uv run spite --help`または各サブコマンドの`--help`で確認できます。
 
+## テスト
+
+標準ライブラリのunittestでテストを実行します。
+
+```bash
+uv run python -m unittest discover -s tests
+```
+
 ## ドキュメント
 
 - [製品PRD](docs/prd.ja.md) ([English](docs/prd.md))と[ADR](docs/adr.ja.md) ([English](docs/adr.md))

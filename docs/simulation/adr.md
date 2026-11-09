@@ -3,7 +3,7 @@
 [日本語版 (Japanese)](adr.ja.md)
 
 - **Status**: Accepted
-- **Deciders**: Spite Architecture & Engineering Team
+- **Deciders**: Project maintainer
 - **Date**: 2026-11-08
 - **Target Path**: `/simulation`
 - **Related Documents**: [Product Requirements Document (PRD)](prd.md)

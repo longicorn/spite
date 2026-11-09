@@ -57,6 +57,14 @@ Each non-merge commit is an observed work unit; merges are counted separately. G
 
 `--output` is a root directory. Each command saves `report.md` and `snapshot.json` under `<root>/<command>/<run-id>/`; some formats also save `chart.png`. Without `--output`, reports are printed in the terminal. Run `uv run spite --help` or a subcommand with `--help` for all options.
 
+## Testing
+
+Run the test suite with the standard-library unittest runner:
+
+```bash
+uv run python -m unittest discover -s tests
+```
+
 ## Documentation
 
 - [Product PRD](docs/prd.md) ([日本語](docs/prd.ja.md)) and [ADR](docs/adr.md) ([日本語](docs/adr.ja.md))
