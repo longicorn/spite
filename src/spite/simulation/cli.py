@@ -3,6 +3,7 @@ import math
 import random
 import secrets
 import statistics
+import sys
 from pathlib import Path
 from ..units import duration, positive_float
 from ..storage import load_run, save_run
@@ -26,6 +27,9 @@ def configure(subparsers):
     p.add_argument('--completed-tasks', type=int, help='Total completed tasks so far')
     p.add_argument('--remaining-tasks', type=int, help='Known remaining tasks for a new synthetic graph')
     p.add_argument('--seed', type=int)
+    p.add_argument('--topology', help='YAML topology file')
+    p.add_argument('--template', action='store_true', help='Print a YAML template')
+    p.add_argument('--from-git', metavar='BASE', help='Print a YAML draft from BASE..HEAD')
     return p
 
 
@@ -71,6 +75,28 @@ def distribution_chart(samples):
 
 
 def run(args, parser):
+    from .topology import dump, git_draft, load, template
+    if args.template or args.from_git:
+        if args.template and args.from_git or args.topology or args.continue_from:
+            parser.error('Template and Git draft modes cannot be combined with topology or continuation')
+        try:
+            print(dump(template() if args.template else git_draft(args.from_git)), end='')
+        except ValueError as exc:
+            parser.error(str(exc))
+        return 0
+    topology = None
+    if args.topology:
+        if args.continue_from:
+            parser.error('--topology cannot be combined with --continue-from; update the YAML to revise the forecast')
+        ignored = [name for name in ('pattern', 'scale') if getattr(args, name) is not None]
+        if ignored:
+            print('warning: --topology ignores ' + ', '.join('--' + name for name in ignored), file=sys.stderr)
+            for name in ignored:
+                setattr(args, name, None)
+        try:
+            topology, topology_elapsed, topology_completed = load(args.topology)
+        except ValueError as exc:
+            parser.error(f'Invalid YAML topology {args.topology!r}: {exc}')
     parent = None
     if args.continue_from:
         if not args.output:
@@ -79,6 +105,8 @@ def run(args, parser):
             parent = load_run(args.output, args.continue_from, 'simulate')
         except ValueError as exc:
             parser.error(str(exc))
+        if parent.get('topology_input'):
+            parser.error('YAML topology runs cannot be continued with --continue-from; update the YAML instead')
         if args.elapsed_periods is None or args.completed_tasks is None or args.remaining_tasks is None:
             parser.error('--continue-from requires --elapsed-periods, --completed-tasks and --remaining-tasks')
         if not isinstance(parent.get('config'), dict) or not isinstance(parent.get('summary'), dict) or any(not isinstance(parent['summary'].get(name, {}).get('total', {}).get(label), (int, float)) for name in ('Best', 'Nominal', 'Worst') for label in ('p50', 'p80', 'p90')):
@@ -112,7 +140,7 @@ def run(args, parser):
     rows, samples = [], {}
     representative = None
     for name, disc, rw, gf in [('Best', discovery * .5, min(args.rework_rate * .25, .049), .6), ('Nominal', discovery, args.rework_rate, 1), ('Worst', min(1, discovery * 1.5), min(1, max(.25, args.rework_rate * 1.5)), 1.5)]:
-        results = [simulate(generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, rng, task_periods=task_periods) for _ in range(args.iterations)]
+        results = [simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, rng, task_periods=task_periods) for _ in range(args.iterations)]
         values = sorted(result.duration for result in results)
         samples[name] = values
         if name == 'Nominal':
@@ -123,7 +151,7 @@ def run(args, parser):
         rows.append(f'| {name} | ' + ' | '.join(cells) + f' | {statistics.mean(values):.1f} | {statistics.pstdev(values):.1f} |')
     # Independent samples for a comparative staffing estimate, with a separate reproducible RNG.
     sensitivity_rng = random.Random(args.seed)
-    doubled = sorted(simulate(generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, sensitivity_rng, task_periods=task_periods).duration for _ in range(args.iterations))
+    doubled = sorted(simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, sensitivity_rng, task_periods=task_periods).duration for _ in range(args.iterations))
     baseline = percentile(samples['Nominal'], .8)
     change = (baseline - percentile(doubled, .8)) / baseline * 100 if baseline else 0.0
     def write_png(path):
@@ -136,7 +164,7 @@ def run(args, parser):
         fig.tight_layout()
         fig.savefig(path)
         plt.close(fig)
-    lines = ['# Structural simulation', '', f'Pattern: {args.pattern}; scale: {args.scale}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', f'Nominal staffing sensitivity: doubling team size to {args.team_size * 2} changes P80 by {change:+.1f}% reduction (independent Monte Carlo estimates).', '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', f'Nominal staffing sensitivity: doubling team size to {args.team_size * 2} changes P80 by {change:+.1f}% reduction (independent Monte Carlo estimates).', '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
     if parent:
         elapsed = args.elapsed_periods
         lines.insert(5, 'The forecast table and distribution describe remaining time, not time since project start.')
@@ -146,6 +174,11 @@ def run(args, parser):
                 previous = parent['summary'][name]['total'][label]
                 current = percentile(values, q)
                 lines.append(f'| {name} | {label.upper()} | {duration(previous, args.days_per_period)} | {duration(current, args.days_per_period)} | {duration(elapsed + current, args.days_per_period)} |')
+    if topology is not None:
+        lines.insert(2, f'Topology: {args.topology}; completed tasks: {topology_completed}; pending tasks: {len(topology)}; elapsed: {duration(topology_elapsed, args.days_per_period)}. The forecast table and distribution describe remaining time.')
+        lines += ['', '## Total forecast', '', '| Scenario | P50 | P80 | P90 |', '| --- | --- | --- | --- |']
+        for name, values in samples.items():
+            lines.append(f'| {name} | ' + ' | '.join(duration(topology_elapsed + percentile(values, q), args.days_per_period) for q in (.5, .8, .9)) + ' |')
     if args.days_per_period is not None:
         lines.insert(3, f'Approximate conversion: 1 period = {args.days_per_period:g} days; conversions use unrounded values and no calendar or holidays are applied.')
     values = samples['Nominal']
@@ -159,7 +192,8 @@ def run(args, parser):
     if (args.format == 'markdown' or args.output) and representative.nodes:
         lines += ['', '## Representative topology', '', '```mermaid', 'flowchart LR']
         for i, node in enumerate(representative.nodes):
-            lines.append(f'    N{i}["{node.name}"]')
+            safe_name = node.name.replace('&', '&amp;').replace('\"', '&quot;').replace('\n', ' ')
+            lines.append(f'    N{i}["{safe_name}"]')
             for dep in node.deps:
                 lines.append(f'    N{dep} {"-.->" if (dep, i) in representative.resource_edges else "-->"} N{i}')
             if node.kind == 'gate':
@@ -169,13 +203,13 @@ def run(args, parser):
         lines += ['    classDef review fill:#ffe4a3,stroke:#b76e00', '    classDef critical stroke:#e74c3c,stroke-width:3px', '```']
     report = '\n'.join(lines) + '\n'
     if args.output:
-        elapsed = args.elapsed_periods or 0
+        elapsed = topology_elapsed if topology is not None else (args.elapsed_periods or 0)
         config = {key: getattr(args, key) for key in defaults}
         summary = {name: {'remaining': {f'p{int(q*100)}': percentile(values, q) for q in (.5, .8, .9)},
                           'total': {f'p{int(q*100)}': elapsed + percentile(values, q) for q in (.5, .8, .9)}} for name, values in samples.items()}
-        snapshot = {'parent_run_id': args.continue_from, 'config': config, 'seed': args.seed,
-                    'progress': {'elapsed_periods': elapsed, 'completed_tasks': args.completed_tasks or 0,
-                                 'remaining_tasks': args.remaining_tasks},
+        snapshot = {'topology_input': topology is not None, 'parent_run_id': args.continue_from, 'config': config, 'seed': args.seed,
+                    'progress': {'elapsed_periods': elapsed, 'completed_tasks': topology_completed if topology is not None else (args.completed_tasks or 0),
+                                 'remaining_tasks': len(topology) if topology is not None else args.remaining_tasks},
                     'samples': samples, 'summary': summary,
                     'representative': {'duration': representative.duration, 'gate_time': representative.gate_time,
                         'nodes': [vars(node) for node in representative.nodes], 'critical_path': representative.critical_path,
