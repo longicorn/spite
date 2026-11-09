@@ -75,3 +75,32 @@ class SimulationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class StaffingComparisonTests(unittest.TestCase):
+    def test_direction_and_zero_baseline(self):
+        from spite.simulation.cli import staffing_comparison
+        self.assertIn('10.0% lower', staffing_comparison(10, 9, 2))
+        self.assertIn('10.0% higher', staffing_comparison(10, 11, 2))
+        self.assertIn('approximately unchanged', staffing_comparison(10, 10, 2))
+        self.assertIn('baseline P80 is zero', staffing_comparison(0, 0, 2))
+        self.assertIn('sampling noise', staffing_comparison(10, 9, 2))
+
+class PairedRandomTests(unittest.TestCase):
+    def test_pairing_survives_changed_schedule_and_discovery(self):
+        from spite.simulation.engine import PairedRandom
+        nodes = [Node('a', 'exploratory', ()), Node('b', 'task', ()),
+                 Node('review', 'gate', (0, 1))]
+        serial = simulate(nodes, 1, 1, .5, 1, PairedRandom(7))
+        parallel = simulate(nodes, 2, 1, .5, 1, PairedRandom(7))
+        self.assertLessEqual(parallel.duration, serial.duration)
+        self.assertEqual(sum('rework' in n.name for n in serial.nodes),
+                         sum('rework' in n.name for n in parallel.nodes))
+        self.assertEqual(serial, simulate(nodes, 1, 1, .5, 1, PairedRandom(7)))
+
+    def test_draws_are_addressed_by_logical_event(self):
+        from spite.simulation.engine import PairedRandom
+        first, second = PairedRandom(99), PairedRandom(99)
+        a, b = (('node', 0), 'duration', 0), (('node', 1), 'duration', 0)
+        values = (first.source(a).random(), first.source(b).random())
+        self.assertEqual(values, (second.source(b).random(), second.source(a).random())[::-1])
+        self.assertNotEqual(values[0], values[1])

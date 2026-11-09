@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from ..units import duration, positive_float
 from ..storage import load_run, save_run
-from .engine import generate, simulate
+from .engine import PairedRandom, generate, simulate
 
 
 def configure(subparsers):
@@ -74,6 +74,20 @@ def distribution_chart(samples):
     return lines + ['```']
 
 
+def staffing_comparison(baseline, doubled, team_size):
+    """Describe a difference between independently estimated P80 values."""
+    if baseline == 0:
+        difference = 'percentage change is unavailable because the baseline P80 is zero'
+    else:
+        change = (doubled - baseline) / baseline * 100
+        if abs(change) < .05:
+            difference = 'P80 is approximately unchanged'
+        else:
+            difference = f'P80 is estimated to be {abs(change):.1f}% {"higher" if change > 0 else "lower"}'
+    return (f'Nominal staffing sensitivity: doubling team size to {team_size * 2}: {difference}. '
+            'Trials use shared task-level random draws; small differences may still be sampling noise.')
+
+
 def run(args, parser):
     from .topology import dump, git_draft, load, template
     if args.template or args.from_git:
@@ -137,10 +151,11 @@ def run(args, parser):
         parser.error('--tasks-per-period must have a finite, nonzero reciprocal')
     rng = random.Random(args.seed)
     discovery = {'low': .1, 'medium': .3, 'high': .5}[args.uncertainty]
+    paired_seeds = [random.Random(f"{args.seed}:staffing:{i}").getrandbits(128) for i in range(args.iterations)]
     rows, samples = [], {}
     representative = None
     for name, disc, rw, gf in [('Best', discovery * .5, min(args.rework_rate * .25, .049), .6), ('Nominal', discovery, args.rework_rate, 1), ('Worst', min(1, discovery * 1.5), min(1, max(.25, args.rework_rate * 1.5)), 1.5)]:
-        results = [simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, rng, task_periods=task_periods) for _ in range(args.iterations)]
+        results = [simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, PairedRandom(paired_seeds[i]) if name == 'Nominal' else rng, task_periods=task_periods) for i in range(args.iterations)]
         values = sorted(result.duration for result in results)
         samples[name] = values
         if name == 'Nominal':
@@ -149,11 +164,10 @@ def run(args, parser):
         metrics = [percentile(values, q) for q in (.5, .8, .9)]
         cells = [duration(x, args.days_per_period) for x in metrics]
         rows.append(f'| {name} | ' + ' | '.join(cells) + f' | {statistics.mean(values):.1f} | {statistics.pstdev(values):.1f} |')
-    # Independent samples for a comparative staffing estimate, with a separate reproducible RNG.
-    sensitivity_rng = random.Random(args.seed)
-    doubled = sorted(simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, sensitivity_rng, task_periods=task_periods).duration for _ in range(args.iterations))
+    # Match logical event draws across the nominal and doubled-team trials.
+    doubled = sorted(simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, PairedRandom(seed), task_periods=task_periods).duration for seed in paired_seeds)
     baseline = percentile(samples['Nominal'], .8)
-    change = (baseline - percentile(doubled, .8)) / baseline * 100 if baseline else 0.0
+    staffing_summary = staffing_comparison(baseline, percentile(doubled, .8), args.team_size)
     def write_png(path):
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
@@ -164,7 +178,7 @@ def run(args, parser):
         fig.tight_layout()
         fig.savefig(path)
         plt.close(fig)
-    lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', f'Nominal staffing sensitivity: doubling team size to {args.team_size * 2} changes P80 by {change:+.1f}% reduction (independent Monte Carlo estimates).', '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', staffing_summary, '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
     if parent:
         elapsed = args.elapsed_periods
         lines.insert(5, 'The forecast table and distribution describe remaining time, not time since project start.')
