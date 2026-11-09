@@ -144,3 +144,11 @@ The `/simulation` capability resides in `src/spite/simulation/`:
 
 ### Phase 3: External Integration (Future)
 - Ingesting GitHub / GitLab issue graphs or PR reviews to calibrate initial pattern parameters.
+
+## User-supplied topology
+
+`spite simulate --topology FILE` reads YAML with `elapsed_periods` (non-negative number, default 0) and `tasks` (list). Each task has a unique string `id`, string `name`, `kind` (`task`, `gate`, `exploratory`), `status` (`pending`, `completed`), and `depends_on` (list of IDs). Dependencies must exist and form a DAG. Completed tasks may depend only on completed tasks. Enter in-progress work as pending remaining work. Completed tasks satisfy dependencies without simulation. Reports show remaining and total forecasts, adding elapsed periods to the latter.
+
+Exploratory tasks use existing scenario discovery probabilities; discovered work blocks immediate successors. Duration, review and rework use existing settings. Invalid YAML topology inputs are rejected with a message identifying the file. With `--topology`, `--pattern` and `--scale` are ignored with a warning; `--continue-from` remains incompatible.
+
+`spite simulate --template` prints an editable example. `spite simulate --from-git BASE` prints a draft containing one completed task per non-merge commit in `BASE..HEAD`, without inferred dependencies or elapsed time. Redirect output to a file and edit it, adding remaining and exploratory work. Uncommitted and future work are absent from history.

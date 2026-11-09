@@ -120,3 +120,9 @@ flowchart TD
    - *Rejected*: Traditional PERT/CPM assumes fixed nodes and no cycles, failing to capture rework loops and unexpected scope discovery (the primary causes of project delays in software engineering).
 3. **Heavy Visualization Packages (Matplotlib / Graphviz binary dependencies)**:
    - *Rejected*: Requiring system-level Graphviz binaries or heavy graphical plotting stacks creates friction in headless CI and developer containers. Pure Mermaid Markdown embedding provides zero-dependency rendering directly supported by GitHub, GitLab, and IDEs.
+
+## Decision: YAML topology input
+
+Accept the YAML schema and CLI described in the [PRD](prd.md). Validate IDs, types, references, acyclicity and completed-task consistency; topologically order pending nodes and remove satisfied dependencies. Each iteration starts from this graph. Existing scenario discovery probabilities apply; discovered work blocks immediate successors. Add elapsed periods to total forecasts. YAML and synthetic continuation cannot be combined. Ignore explicit pattern and scale settings with a warning when YAML is supplied; identify the YAML file in input errors.
+
+Template and Git draft generation write YAML to standard output. Git selects non-merge commits in `BASE..HEAD`, one completed task per commit, without inferred dependencies or elapsed time. Users edit the draft before forecasting.
