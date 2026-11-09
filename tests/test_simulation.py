@@ -104,3 +104,47 @@ class PairedRandomTests(unittest.TestCase):
         values = (first.source(a).random(), first.source(b).random())
         self.assertEqual(values, (second.source(b).random(), second.source(a).random())[::-1])
         self.assertNotEqual(values[0], values[1])
+
+class ComplexityRiskTests(unittest.TestCase):
+    def test_factor_scales_tasks_but_not_review_wait(self):
+        from spite.simulation.engine import PairedRandom
+        nodes = [Node('task', 'task', ()), Node('review', 'gate', (0,))]
+        base = simulate(nodes, 1, 0, 0, 1, PairedRandom(42))
+        risk = simulate(nodes, 1, 0, 0, 1, PairedRandom(42), complexity_risk='high')
+        factor = PairedRandom(42).source(('complexity',)).triangular(1, 2, 1)
+        self.assertAlmostEqual(risk.gate_time, base.gate_time)
+        self.assertAlmostEqual(risk.duration - risk.gate_time, (base.duration - base.gate_time) * factor)
+
+    def test_factor_increases_discovery_probability(self):
+        from spite.simulation.engine import PairedRandom
+        nodes = [Node('explore', 'exploratory', ())]
+        seed = next(i for i in range(1000) if .5 < PairedRandom(i).source((('node', 0), 'discovery')).random() < min(1, .5 * PairedRandom(i).source(('complexity',)).triangular(1, 2, 1)))
+        base = simulate(nodes, 1, .5, 0, 1, PairedRandom(seed))
+        risk = simulate(nodes, 1, .5, 0, 1, PairedRandom(seed), complexity_risk='high')
+        self.assertEqual(len(base.nodes), 1)
+        self.assertEqual(len(risk.nodes), 2)
+
+    def test_off_preserves_random_stream(self):
+        nodes = generate('complex', 'small')
+        self.assertEqual(simulate(nodes, 2, .3, .15, 1, random.Random(4)),
+                         simulate(nodes, 2, .3, .15, 1, random.Random(4), complexity_risk='off'))
+
+    def test_saved_risk_is_inherited_and_can_be_disabled(self):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from pathlib import Path
+        from spite.cli import main
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                main(['simulate', '--output', root, '--iterations', '2', '--seed', '1', '--complexity-risk', 'high'])
+            run_id = output.getvalue().split('Run ID: ')[1].splitlines()[0]
+            for options, expected in [([], 'high'), (['--complexity-risk', 'off'], 'off')]:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    main(['simulate', '--output', root, '--continue-from', run_id, '--elapsed-periods', '1', '--completed-tasks', '1', '--remaining-tasks', '2', *options])
+                child = output.getvalue().split('Run ID: ')[1].splitlines()[0]
+                snapshot = json.loads((Path(root) / 'simulate' / child / 'snapshot.json').read_text())
+                self.assertEqual(snapshot['config']['complexity_risk'], expected)

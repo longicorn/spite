@@ -17,6 +17,7 @@ def configure(subparsers):
     p.add_argument('--pattern', choices=['linear', 'parallel', 'complex', 'exploratory'], default=None)
     p.add_argument('--scale', choices=['small', 'medium', 'large'], default=None)
     p.add_argument('--uncertainty', choices=['low', 'medium', 'high'], default=None)
+    p.add_argument('--complexity-risk', choices=['off', 'low', 'medium', 'high'], default=None, help='Experimental shared task duration and discovery risk (default: off)')
     p.add_argument('--rework-rate', type=float, default=None)
     p.add_argument('--team-size', type=int, default=None)
     p.add_argument('--iterations', type=int, default=None)
@@ -134,7 +135,7 @@ def run(args, parser):
         parser.error('--elapsed-periods must be finite and non-negative')
     if args.completed_tasks is not None and (args.completed_tasks < 0 or args.remaining_tasks < 0):
         parser.error('task counts must be non-negative')
-    defaults = {'tasks_per_period': 1.0, 'days_per_period': None, 'pattern': 'complex', 'scale': 'medium', 'uncertainty': 'medium', 'rework_rate': .15, 'team_size': 2, 'iterations': 2000}
+    defaults = {'tasks_per_period': 1.0, 'days_per_period': None, 'pattern': 'complex', 'scale': 'medium', 'uncertainty': 'medium', 'complexity_risk': 'off', 'rework_rate': .15, 'team_size': 2, 'iterations': 2000}
     for key, default in defaults.items():
         if getattr(args, key) is None:
             setattr(args, key, parent['config'].get(key, default) if parent else default)
@@ -155,7 +156,7 @@ def run(args, parser):
     rows, samples = [], {}
     representative = None
     for name, disc, rw, gf in [('Best', discovery * .5, min(args.rework_rate * .25, .049), .6), ('Nominal', discovery, args.rework_rate, 1), ('Worst', min(1, discovery * 1.5), min(1, max(.25, args.rework_rate * 1.5)), 1.5)]:
-        results = [simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, PairedRandom(paired_seeds[i]) if name == 'Nominal' else rng, task_periods=task_periods) for i in range(args.iterations)]
+        results = [simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size, disc, rw, gf, PairedRandom(paired_seeds[i]) if name == 'Nominal' else rng, task_periods=task_periods, complexity_risk=args.complexity_risk) for i in range(args.iterations)]
         values = sorted(result.duration for result in results)
         samples[name] = values
         if name == 'Nominal':
@@ -165,7 +166,7 @@ def run(args, parser):
         cells = [duration(x, args.days_per_period) for x in metrics]
         rows.append(f'| {name} | ' + ' | '.join(cells) + f' | {statistics.mean(values):.1f} | {statistics.pstdev(values):.1f} |')
     # Match logical event draws across the nominal and doubled-team trials.
-    doubled = sorted(simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, PairedRandom(seed), task_periods=task_periods).duration for seed in paired_seeds)
+    doubled = sorted(simulate(topology if topology is not None else generate(args.pattern, args.scale, args.remaining_tasks), args.team_size * 2, discovery, args.rework_rate, 1, PairedRandom(seed), task_periods=task_periods, complexity_risk=args.complexity_risk).duration for seed in paired_seeds)
     baseline = percentile(samples['Nominal'], .8)
     staffing_summary = staffing_comparison(baseline, percentile(doubled, .8), args.team_size)
     def write_png(path):
@@ -178,7 +179,12 @@ def run(args, parser):
         fig.tight_layout()
         fig.savefig(path)
         plt.close(fig)
-    lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', staffing_summary, '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; base task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Before any complexity factor, task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', staffing_summary, '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    if args.complexity_risk != 'off':
+        upper = {'low': 1.25, 'medium': 1.5, 'high': 2.0}[args.complexity_risk]
+        lines.insert(4, f'Experimental complexity risk: {args.complexity_risk}. Each trial shares a triangular factor (minimum and mode 1, maximum {upper:g}) across task durations and discovery probability (capped at 1). Review waiting and rejection probability are unchanged. These illustrative ranges are not calibrated; risk may overlap with other assumptions.')
+    else:
+        lines.insert(4, 'Complexity risk: off (no project-wide factor).')
     if parent:
         elapsed = args.elapsed_periods
         lines.insert(5, 'The forecast table and distribution describe remaining time, not time since project start.')

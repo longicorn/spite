@@ -63,7 +63,7 @@ class PredictTests(unittest.TestCase):
         base_args = ['simulate', '--iterations', '100', '--seed', '4', '--pattern', 'linear', '--scale', 'small']
         default = self.run_cli(base_args)
         faster = self.run_cli(base_args + ['--tasks-per-period', '5', '--days-per-period', '5'])
-        self.assertIn('reference tasks per period per team member: 5; task duration mode: 0.2 periods', faster)
+        self.assertIn('reference tasks per period per team member: 5; base task duration mode: 0.2 periods', faster)
         self.assertNotEqual(next(line for line in default.splitlines() if line.startswith('| Nominal |')), next(line for line in faster.splitlines() if line.startswith('| Nominal |')))
         for value in ('0', '-1', 'nan', 'inf', '1e-320'):
             with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

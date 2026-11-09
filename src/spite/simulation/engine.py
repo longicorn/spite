@@ -53,7 +53,7 @@ class PairedRandom:
         return random.Random(int.from_bytes(digest, 'big'))
 
 
-def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0):
+def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods=1.0, complexity_risk="off"):
     """Simulate a DAG and retain an execution graph including resource contention."""
     nodes = list(nodes)
     if not nodes:
@@ -62,6 +62,11 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
     keys = [("node", i) for i in range(len(nodes))]
     def random_source(key):
         return rng.source(key) if isinstance(rng, PairedRandom) else rng
+    if complexity_risk != "off":
+        upper = {"low": 1.25, "medium": 1.5, "high": 2.0}[complexity_risk]
+        factor = random_source(("complexity",)).triangular(1, upper, 1)
+        task_periods *= factor
+        discovery = min(1.0, discovery * factor)
     children = [[] for _ in nodes]
     remaining = [len(n.deps) for n in nodes]
     for i, node in enumerate(nodes):
