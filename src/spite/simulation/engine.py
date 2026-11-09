@@ -22,7 +22,7 @@ class Result:
     resource_edges: list[tuple[int, int]]
 
 
-def generate(pattern, scale, task_count=None):
+def generate(pattern, scale, task_count=None, topology_rng=None):
     n = {'small': 8, 'medium': 20, 'large': 40}[scale]
     if task_count is not None:
         n = task_count
@@ -34,12 +34,20 @@ def generate(pattern, scale, task_count=None):
             deps = (i - 1,)
         elif pattern == 'parallel':
             deps = (0,)
+        elif topology_rng is not None:
+            candidates = list(range(max(0, i - 3), i))
+            deps = tuple(sorted(topology_rng.sample(candidates, topology_rng.randint(1, len(candidates)))))
         else:
             deps = (max(0, i - 3),) if i % 4 else tuple(range(max(0, i - 3), i))
         kind = 'gate' if i % 7 == 0 else 'exploratory' if pattern == 'exploratory' or i % 5 == 0 else 'task'
         label = 'Review' if kind == 'gate' else kind.title()
         nodes.append(Node(f'{label} {i}', kind, deps))
-    nodes.append(Node('Integration review', 'gate', tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))))
+    if topology_rng is not None and pattern in ('complex', 'exploratory'):
+        used = {dep for node in nodes for dep in node.deps}
+        final_deps = tuple(i for i in range(n) if i not in used)
+    else:
+        final_deps = tuple(range(max(0, n - 3), n)) if pattern != 'parallel' else tuple(range(1, n))
+    nodes.append(Node('Integration review', 'gate', final_deps))
     return nodes
 
 

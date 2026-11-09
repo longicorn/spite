@@ -148,3 +148,40 @@ class ComplexityRiskTests(unittest.TestCase):
                 child = output.getvalue().split('Run ID: ')[1].splitlines()[0]
                 snapshot = json.loads((Path(root) / 'simulate' / child / 'snapshot.json').read_text())
                 self.assertEqual(snapshot['config']['complexity_risk'], expected)
+
+class TopologyVariationTests(unittest.TestCase):
+    def test_complex_variation_is_reproducible_acyclic_and_connected(self):
+        for pattern in ('complex', 'exploratory'):
+            graphs = [generate(pattern, 'small', topology_rng=random.Random(seed)) for seed in range(8)]
+            self.assertEqual(graphs[0], generate(pattern, 'small', topology_rng=random.Random(0)))
+            self.assertGreater(len({tuple(graph) for graph in graphs}), 1)
+            for nodes in graphs:
+                self.assertTrue(all(dep < i for i, node in enumerate(nodes) for dep in node.deps))
+                used = {dep for node in nodes[:-1] for dep in node.deps}
+                self.assertEqual(set(nodes[-1].deps), set(range(len(nodes) - 1)) - used)
+
+    def test_linear_and_parallel_stay_fixed(self):
+        for pattern in ('linear', 'parallel'):
+            self.assertEqual(generate(pattern, 'small'), generate(pattern, 'small', topology_rng=random.Random(1)))
+
+    def test_seeded_report_reproducible_and_variation_inherited(self):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from pathlib import Path
+        from spite.cli import main
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                main(['simulate', '--output', root, '--iterations', '3', '--seed', '5', '--topology-variation', 'random'])
+            run_id = output.getvalue().split('Run ID: ')[1].splitlines()[0]
+            path = Path(root) / 'simulate' / run_id
+            data = json.loads((path / 'snapshot.json').read_text())
+            self.assertEqual(data['config']['topology_variation'], 'random')
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                main(['simulate', '--output', root, '--continue-from', run_id, '--elapsed-periods', '1', '--completed-tasks', '1', '--remaining-tasks', '5'])
+            child = output.getvalue().split('Run ID: ')[1].splitlines()[0]
+            data = json.loads((Path(root) / 'simulate' / child / 'snapshot.json').read_text())
+            self.assertEqual(data['config']['topology_variation'], 'random')
