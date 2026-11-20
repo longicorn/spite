@@ -185,3 +185,28 @@ class TopologyVariationTests(unittest.TestCase):
             child = output.getvalue().split('Run ID: ')[1].splitlines()[0]
             data = json.loads((Path(root) / 'simulate' / child / 'snapshot.json').read_text())
             self.assertEqual(data['config']['topology_variation'], 'random')
+
+class RoleAllocationTests(unittest.TestCase):
+    def test_switching_cost_and_same_role(self):
+        people = [('a', ('design', 'build'))]
+        changed = [Node('design', 'task', (), roles=('design',)), Node('build', 'task', (0,), roles=('build',))]
+        repeated = [Node('design', 'task', (), roles=('design',)), Node('build', 'task', (0,), roles=('design',))]
+        def run(nodes, cost):
+            return simulate(nodes, 1, 0, 0, 1, random.Random(1), people=people, switching_cost=cost).duration
+        self.assertAlmostEqual(run(changed, 2) - run(changed, 0), 2)
+        self.assertEqual(run(repeated, 2), run(repeated, 0))
+
+    def test_joint_task_needs_distinct_people(self):
+        task = [Node('joint', 'task', (), roles=('design', 'build'))]
+        with self.assertRaisesRegex(ValueError, 'No feasible assignment'):
+            simulate(task, 1, 0, 0, 1, random.Random(1), people=[('a', ('design', 'build'))])
+        result = simulate(task, 2, 0, 0, 1, random.Random(1), people=[('a', ('design', 'build')), ('b', ('design',))])
+        self.assertGreater(result.duration, 0)
+
+class ExplicitReworkTests(unittest.TestCase):
+    def test_gate_reworks_specified_task(self):
+        nodes = [Node('Build', 'task', ()), Node('Review work', 'task', (0,)),
+                 Node('Decision', 'gate', (1,), rework_target=('Build', ('dev',)))]
+        result = simulate(nodes, 1, 0, 1, 1, random.Random(3), people=[('a', ('dev',))])
+        self.assertTrue(any(n.name == 'Build (rework 1)' for n in result.nodes))
+        self.assertFalse(any(n.name == 'Review work (rework 1)' for n in result.nodes))
