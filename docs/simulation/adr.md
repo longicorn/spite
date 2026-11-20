@@ -19,6 +19,7 @@ Spite's baseline project forecasting relied on parametric distribution fitting (
 - **Rework Iterations**: Feedback loops triggered by code reviews, gate rejections, and defects.
 - **Gate Latencies**: Review queues and external dependencies that cannot be compressed by adding personnel.
 - **Resource Bottlenecks**: Concurrency limitations imposed by Amdahl's Law and Brooks's Law under team size constraints.
+- **Specialized Roles & Context Switching**: Coordination delays between distinct roles (e.g., PM, Dev, QA) and cognitive penalties when switching roles.
 
 To address these challenges, we need to introduce a structural Monte Carlo simulation engine (`spite simulate`) that generates ensembles of dynamic project topologies and models resource-constrained execution. We must determine the core architectural patterns for execution, graph generation, resource scheduling, and report generation.
 
@@ -30,6 +31,7 @@ To address these challenges, we need to introduce a structural Monte Carlo simul
 2. **Minimal Dependencies & Portability**: Preserving Spite's lightweight CLI footprint without introducing cumbersome or platform-dependent C-extensions.
 3. **Dynamic Topology Support**: Seamlessly modeling runtime graph mutations (dynamic node discovery, cyclical rework loops) without violating acyclic topological assumptions during scheduling.
 4. **Actionable & Shareable Output**: Delivering clean, zero-friction reports (Markdown + Mermaid) optimized for PR discussions, issue trackers, and Git version control.
+5. **Organizational Reality & Role Modeling**: Capturing real-world delivery bottlenecks created by role specializations, joint tasks, and context switching without breaking backwards compatibility.
 
 ---
 
@@ -68,7 +70,15 @@ To address these challenges, we need to introduce a structural Monte Carlo simul
   - Parameter and scenario attribution.
   - Embedded Mermaid `flowchart TD` / `flowchart LR` diagrams representing representative topology samples, highlighting critical paths and Gate bottlenecks with distinct CSS class styling.
 - **Rationale**:
-  - Markdown reports are directly committable to Git repositories, viewable in PR descriptions, and readable in any documentation viewer without requiring dedicated dashboard servers or external image-hosting infrastructure.
+  - Markdown reports are directly committable to Git repositories, viewable in PR discussions, and readable in any documentation viewer without requiring dedicated dashboard servers or external image-hosting infrastructure.
+
+### Decision 5: People, Capabilities, and Atomic Allocation
+
+- **Decision**: Model each person as a resource with one or more user-defined roles (capabilities). Role names may be broad or fine-grained. A role-count mapping is shorthand for distinct dedicated people. With neither people nor role counts, retain the homogeneous `--team-size` pool.
+- A task's role list requires one distinct available person per role. Match all roles atomically; a multi-role person can fill only one role in a joint task. Unspecified tasks use any one person. Gates are resource-free waits and cannot specify roles.
+- Track each person's last assigned role. Changing roles adds `--switching-cost` periods while occupying all assigned people; the joint task delay is the maximum individual switching cost. The first role assignment and unassigned-role tasks incur no switching cost; unassigned-role tasks leave the previous role unchanged.
+- Discoveries and rework inherit the roles of their originating work. Reject tasks with no feasible assignment. Atomic allocation avoids partial locks, but does not guarantee freedom from starvation.
+- **Rationale**: Individual capabilities model shared capacity and switching, while dedicated counts provide a concise approximation without identifying people.
 
 ---
 
@@ -76,16 +86,17 @@ To address these challenges, we need to introduce a structural Monte Carlo simul
 
 ```mermaid
 flowchart TD
-    CLI["CLI: spite simulate"] --> Config["SimulationConfig\n(Pattern, Scale, Uncertainty, Rework, TeamSize)"]
+    CLI["CLI: spite simulate"] --> Config["SimulationConfig\n(Pattern, Scale, Uncertainty, Rework, TeamSize, Roles, SwitchingCost)"]
     Config --> ScenarioRunner["Scenario Calibration Engine\n(Best, Nominal, Worst)"]
     
     subgraph MonteCarloLoop ["Monte Carlo Iteration Loop (N iterations)"]
-        ScenarioRunner --> Gen["Topology Generator\n(Linear / Parallel / Complex / Exploratory)"]
+        ScenarioRunner --> Gen["Topology Generator\n(Linear / Parallel / Complex / Exploratory / YAML)"]
         Gen --> InitGraph["Initial Execution Graph\n(Task, Gate, Exploratory Nodes)"]
         InitGraph --> DES["Lightweight Event Scheduler\n(heapq Event Queue)"]
         
-        DES --> ResQueue["Resource Allocator\n(Concurrency Limit: team_size)"]
-        ResQueue --> DynMut["Dynamic Graph Mutation\n(Discovery of Hidden Nodes & Rework Loops)"]
+        DES --> ResQueue["Resource Allocator\n(Homogeneous pool OR Role Queues & Co-Allocation)"]
+        ResQueue --> SwitchEval["Context-Switching Delay Evaluator\n(Track previous role state per slot)"]
+        SwitchEval --> DynMut["Dynamic Graph Mutation\n(Discovery of Hidden Nodes & Rework Loops)"]
         DynMut --> DES
     end
     
@@ -103,12 +114,13 @@ flowchart TD
 - **High Simulation Throughput**: Pure Python lightweight DES executes multi-scenario Monte Carlo runs in seconds, making iterative CLI exploration frictionless.
 - **High Explainability**: Visualizing the dynamic graph via Mermaid enables engineers and managers to inspect the exact critical paths and gate wait bottlenecks causing project delays.
 - **No Third-Party Runtime Bloat**: Avoids complex dependencies, ensuring high portability across environments.
+- **Realistic Organizational Modeling**: Explicit role constraints and context-switching penalties allow engineering leaders to quantify the impact of cross-functional handoffs and solo developer multitasking.
 
 ### Negative Consequences & Mitigations
 - **Large Graph Mermaid Rendering**: Large projects with hundreds of nodes can produce large Mermaid diagrams that may slow browser rendering.
   - *Mitigation*: Prune or cluster non-critical background nodes when generating Mermaid diagrams for large graphs, focusing the visual output on the critical path and gate bottlenecks.
-- **Simplification of Individual Developer Skill Levels**: Treating team members as homogeneous resource slots (`team_size`).
-  - *Mitigation*: This is intentional for macroscopic project forecasting; individual specialization modeling can be evaluated in future iterations if required.
+- **Synchronization Latency & Starvation with Multi-Role Allocation**: Tasks requiring concurrent co-allocation across multiple roles may suffer from synchronization delays if slot availability does not align.
+  - *Mitigation*: Atomic reservation prevents partial locks/deadlocks, and critical-path depth prioritization gives ready tasks preference without guaranteeing fairness. Progressive disclosure keeps the default mode simple and homogeneous (`--team-size`).
 
 ---
 
@@ -120,9 +132,14 @@ flowchart TD
    - *Rejected*: Traditional PERT/CPM assumes fixed nodes and no cycles, failing to capture rework loops and unexpected scope discovery (the primary causes of project delays in software engineering).
 3. **Heavy Visualization Packages (Matplotlib / Graphviz binary dependencies)**:
    - *Rejected*: Requiring system-level Graphviz binaries or heavy graphical plotting stacks creates friction in headless CI and developer containers. Pure Mermaid Markdown embedding provides zero-dependency rendering directly supported by GitHub, GitLab, and IDEs.
+4. **Greedy Partial Slot Reservation for Joint Tasks**:
+   - *Rejected*: Holding a PM slot while waiting for a Dev slot to free up risks deadlock and starves independent PM tasks. Atomic co-allocation avoids partial locks but does not guarantee fairness.
 
 ## Decision: YAML topology input
 
 Accept the YAML schema and CLI described in the [PRD](prd.md). Validate IDs, types, references, acyclicity and completed-task consistency; topologically order pending nodes and remove satisfied dependencies. Each iteration starts from this graph. Existing scenario discovery probabilities apply; discovered work blocks immediate successors. Add elapsed periods to total forecasts. YAML and synthetic continuation cannot be combined. Ignore explicit pattern and scale settings with a warning when YAML is supplied; identify the YAML file in input errors.
 
 Template and Git draft generation write YAML to standard output. Git selects non-merge commits in `BASE..HEAD`, one completed task per commit, without inferred dependencies or elapsed time. Users edit the draft before forecasting.
+## Decision: Explicit gate rework target
+
+Keep gates as resource-free waiting and rejection events; model staffed review as a separate task. A YAML gate can specify `rework_target` as an upstream non-gate task ID, including a completed task. Rejection repeats that task with its roles and retries the gate; intervening tasks are not repeated. Omission preserves the existing automatic target selection. Reject non-empty gate roles to avoid silently ignoring resource requirements.

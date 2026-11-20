@@ -57,7 +57,9 @@ uv run spite simulate [OPTIONS]
 - `--scale` (Enum: `small`, `medium`, `large`, Default: `medium`): Base scope indicating approximate expected node volume.
 - `--uncertainty` (Enum: `low`, `medium`, `high`, Default: `medium`): Propensity to discover hidden nodes and edges during execution.
 - `--rework-rate` (Float: `0.0` to `1.0`, Default: `0.15`): Probability of rework triggered after review decisions.
-- `--team-size` (Integer, Default: `2`): Concurrency limit for parallel active tasks.
+- `--team-size` (Integer, Default: `2`): Concurrency limit for parallel active tasks when `--roles` is omitted.
+- `--roles` (String, optional, format: `"<role1>:<count>,<role2>:<count>"`): Role-based resource pool (e.g., `"pm:1,dev:2,qa:1"`). When omitted, `--team-size` acts as a homogeneous resource pool without role constraints or switching costs. Each count creates distinct people dedicated to that role. CLI counts override YAML people or roles.
+- `--switching-cost` (Non-negative number, optional, default: `0.0`): Overhead delay in periods added when switching between distinct roles across consecutive tasks on shared/multi-role resources. Defaults to 0 (no switching penalty).
 - `--tasks-per-period` (positive number, default: `1`): Reference task rate per team member. Its reciprocal is the most likely task duration in periods; it does not guarantee completed throughput. Task, discovery, and rework durations use a triangular distribution from 0.5 to 2 times this duration, with its peak at that duration. Review waiting times use a separate distribution.
 - `--iterations` (Integer, Default: `2000`): Number of Monte Carlo iterations per scenario.
 - `--format` (Enum: `markdown`, `terminal`, `png`, Default: `markdown`): Primary output presentation format.
@@ -88,7 +90,11 @@ By default each preset generates a deterministic initial skeleton for a given pa
 
 Each simulated iteration executes the generated graph under resource and dependency constraints:
 1. **Node Duration Sampling**: Each node's required effort is sampled from an underlying distribution (e.g., lognormal or triangular based on node complexity).
-2. **Resource Queuing**: Available team capacity (`--team-size`) is allocated to ready nodes. If ready nodes exceed team size, nodes queue based on critical-path priority.
+2. **Resource Queuing & Role Allocation**:
+   - In default mode (unspecified roles), ready nodes acquire available generic team slots up to `--team-size`, prioritized by critical-path depth.
+   - When role-based allocation is active (`--roles` or topology-level `roles`), ready nodes acquire people with the required capabilities.
+   - **Joint-Role Tasks**: Tasks requiring multiple roles (e.g., co-allocated design or review tasks `roles: [pm, dev]`) must acquire a distinct person for each role concurrently before execution begins.
+   - **Context-Switching Cost**: When a person executes tasks in distinct assigned roles consecutively, an overhead delay (`--switching-cost`) is incurred before work on the new role begins. If roles are unspecified, no switching penalty is evaluated.
 3. **Review and Approval Waiting**: A review adds waiting time without occupying a development team slot. A stochastic decision determines whether it passes or triggers rework of an upstream task.
 4. **Dynamic Discovery**: Completing an exploratory node triggers a probability check to dynamically inject newly discovered child nodes or dependencies into the active execution graph.
 5. **Completion Time Metric**: The total elapsed periods when all sink nodes complete represents the sample duration $T_i$.
@@ -141,11 +147,11 @@ The implementation resides in `src/spite/simulation/`: `engine.py` generates pre
 
 ## User-supplied topology
 
-`spite simulate --topology FILE` reads YAML with `elapsed_periods` (non-negative number, default 0) and `tasks` (list). Each task has a unique string `id`, string `name`, `kind` (`task`, `gate`, `exploratory`), `status` (`pending`, `completed`), and `depends_on` (list of IDs). Dependencies must exist and form a DAG. Completed tasks may depend only on completed tasks. Enter in-progress work as pending remaining work. Completed tasks satisfy dependencies without simulation. Reports show remaining and total forecasts, adding elapsed periods to the latter.
+`spite simulate --topology FILE` reads YAML with optional top-level `people` list or `roles` mapping (e.g., `{pm: 1, dev: 2, qa: 1}`), `elapsed_periods` (non-negative number, default 0), and `tasks` (list). Each task has a unique string `id`, string `name`, `kind` (`task`, `gate`, `exploratory`), `status` (`pending`, `completed`), optional `roles` (list of role strings, e.g. `[dev]` or `[pm, dev]`), and `depends_on` (list of IDs). Each person has a unique `id` and a non-empty `roles` list; role names are user-defined capabilities. If task `roles` are omitted, the task consumes any one available person without changing their last role. Gates accept omitted, null, or empty roles; they cannot require roles. A joint task requires a distinct person per role; a multi-role person fills only one role per task. The first assigned role has no switching cost; a joint task adds the maximum switching cost of its assigned people. Discovered and rework tasks inherit the originating task roles. An impossible assignment is rejected. If top-level `roles` are defined in YAML and `--roles` is also supplied via CLI, CLI arguments take precedence. Dependencies must exist and form a DAG. Completed tasks may depend only on completed tasks. Enter in-progress work as pending remaining work. Completed tasks satisfy dependencies without simulation. Reports show remaining and total forecasts, adding elapsed periods to the latter.
 
 Exploratory tasks use existing scenario discovery probabilities; discovered work blocks immediate successors. Duration, review and rework use existing settings. Invalid YAML topology inputs are rejected with a message identifying the file. With `--topology`, `--pattern` and `--scale` are ignored with a warning; `--continue-from` remains incompatible.
 
-`spite simulate --template` prints an editable example. `spite simulate --from-git BASE` prints a draft containing one completed task per non-merge commit in `BASE..HEAD`, without inferred dependencies or elapsed time. Redirect output to a file and edit it, adding remaining and exploratory work. Uncommitted and future work are absent from history.
+`spite simulate --template` prints an editable example. Add `--template-resources people` for a multi-role people example or `--template-resources roles` for dedicated role counts. `spite simulate --from-git BASE` prints a draft containing one completed task per non-merge commit in `BASE..HEAD`, without inferred dependencies or elapsed time. Redirect output to a file and edit it, adding remaining and exploratory work. Uncommitted and future work are absent from history.
 
 ## Model limitations and calibration
 
@@ -164,3 +170,26 @@ These ranges are illustrative assumptions, not calibrated probabilities. The fac
 ## Experimental preset topology variation
 
 `--topology-variation random` varies preset skeletons per trial; `off` is the default. Linear and parallel retain their fixed chain and fan-out structures. Complex and exploratory select one to three distinct predecessors from up to the three immediately preceding nodes; the integration review depends on all terminal nodes. Node counts and kinds remain fixed. The nominal and doubled-staffing trials share the same skeleton. The seed controls reproducibility. This heuristic is experimental and not calibrated to observed projects. YAML input ignores this option with a warning. Saved runs inherit the setting on synthetic continuation and `off` overrides it.
+
+### People example
+
+```yaml
+people:
+  - id: alice
+    roles: [biz-design, dev-design]
+  - id: bob
+    roles: [dev-design, dev-build]
+tasks:
+  - id: design
+    name: Joint design
+    kind: task
+    status: pending
+    roles: [biz-design, dev-design]
+    depends_on: []
+```
+
+A `roles: {pm: 1, dev: 1}` mapping instead defines two dedicated people. `people` and `roles` cannot both appear in YAML. Staffing sensitivity duplicates the defined people with their capabilities. Atomic allocation does not guarantee fairness.
+
+### Review work and rework target
+
+Represent review work that occupies a person as a `task` with roles, followed by a resource-free `gate` for waiting and rejection. A gate may specify `rework_target: build`, referencing an upstream `task` or `exploratory` ID, including a completed task. On rejection, the simulator repeats that task's work with its roles and then retries the gate. Intermediate tasks, including review work, are not repeated. Without `rework_target`, the existing automatic selection remains unchanged. Gates reject non-empty roles; omitted, null and empty roles are accepted.
