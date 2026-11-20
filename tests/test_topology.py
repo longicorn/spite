@@ -67,3 +67,23 @@ class TopologyCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('warning: --topology ignores --pattern, --scale', result.stderr)
             self.assertIn('Topology:', result.stdout)
+
+class ReworkTargetTests(TopologyTests):
+    def test_explicit_rework_target_and_validation(self):
+        data = template()
+        nodes, _, _ = self.read(data)
+        self.assertEqual(nodes[-1].rework_target, ('Build', ()))
+        data['tasks'][-1]['rework_target'] = 'missing'
+        with self.assertRaisesRegex(ValueError, 'upstream'):
+            self.read(data)
+        data['tasks'][-1]['rework_target'] = 'review'
+        with self.assertRaisesRegex(ValueError, 'upstream'):
+            self.read(data)
+
+    def test_completed_target_is_preserved(self):
+        data = template()
+        data['tasks'][0]['status'] = 'completed'
+        data['tasks'][1]['status'] = 'completed'
+        data['tasks'][1]['roles'] = ['dev']
+        nodes, _, _ = self.read(data)
+        self.assertEqual(nodes[0].rework_target, ('Build', ('dev',)))

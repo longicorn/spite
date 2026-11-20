@@ -21,6 +21,8 @@ def configure(subparsers):
     p.add_argument('--complexity-risk', choices=['off', 'low', 'medium', 'high'], default=None, help='Experimental shared task duration and discovery risk (default: off)')
     p.add_argument('--rework-rate', type=float, default=None)
     p.add_argument('--team-size', type=int, default=None)
+    p.add_argument('--roles', help='Dedicated role counts, e.g. pm:1,dev:2')
+    p.add_argument('--switching-cost', type=float, default=None, help='Periods added when a person changes roles')
     p.add_argument('--iterations', type=int, default=None)
     p.add_argument('--format', choices=['markdown', 'terminal', 'png'], default='markdown')
     p.add_argument('--output', help='Root directory for stored runs')
@@ -31,6 +33,7 @@ def configure(subparsers):
     p.add_argument('--seed', type=int)
     p.add_argument('--topology', help='YAML topology file')
     p.add_argument('--template', action='store_true', help='Print a YAML template')
+    p.add_argument('--template-resources', choices=['people', 'roles'], help='Include example people or dedicated role counts in the template')
     p.add_argument('--from-git', metavar='BASE', help='Print a YAML draft from BASE..HEAD')
     return p
 
@@ -91,16 +94,19 @@ def staffing_comparison(baseline, doubled, team_size):
 
 
 def run(args, parser):
-    from .topology import dump, git_draft, load, template
+    from .topology import dump, git_draft, load, template, resources
+    if args.template_resources and not args.template:
+        parser.error('--template-resources requires --template')
     if args.template or args.from_git:
         if args.template and args.from_git or args.topology or args.continue_from:
             parser.error('Template and Git draft modes cannot be combined with topology or continuation')
         try:
-            print(dump(template() if args.template else git_draft(args.from_git)), end='')
+            print(dump(template(args.template_resources) if args.template else git_draft(args.from_git)), end='')
         except ValueError as exc:
             parser.error(str(exc))
         return 0
     topology = None
+    people = None
     if args.topology:
         if args.continue_from:
             parser.error('--topology cannot be combined with --continue-from; update the YAML to revise the forecast')
@@ -111,6 +117,7 @@ def run(args, parser):
                 setattr(args, name, None)
         try:
             topology, topology_elapsed, topology_completed = load(args.topology)
+            people = resources(args.topology)
         except ValueError as exc:
             parser.error(f'Invalid YAML topology {args.topology!r}: {exc}')
     parent = None
@@ -136,10 +143,30 @@ def run(args, parser):
         parser.error('--elapsed-periods must be finite and non-negative')
     if args.completed_tasks is not None and (args.completed_tasks < 0 or args.remaining_tasks < 0):
         parser.error('task counts must be non-negative')
-    defaults = {'tasks_per_period': 1.0, 'days_per_period': None, 'pattern': 'complex', 'scale': 'medium', 'topology_variation': 'off', 'uncertainty': 'medium', 'complexity_risk': 'off', 'rework_rate': .15, 'team_size': 2, 'iterations': 2000}
+    defaults = {'tasks_per_period': 1.0, 'days_per_period': None, 'pattern': 'complex', 'scale': 'medium', 'topology_variation': 'off', 'uncertainty': 'medium', 'complexity_risk': 'off', 'rework_rate': .15, 'team_size': 2, 'iterations': 2000, 'switching_cost': 0.0, 'roles': None}
     for key, default in defaults.items():
         if getattr(args, key) is None:
             setattr(args, key, parent['config'].get(key, default) if parent else default)
+    if args.roles is not None:
+        try:
+            counts = {}
+            for item in args.roles.split(','):
+                role, count = item.rsplit(':', 1)
+                if not role.strip() or role in counts or int(count) < 1:
+                    raise ValueError()
+                counts[role] = int(count)
+            people = [(f'{role}:{i}', (role,)) for role, count in counts.items() for i in range(count)]
+        except (ValueError, AttributeError):
+            parser.error('--roles must contain distinct role:positive-count pairs')
+    if not math.isfinite(args.switching_cost) or args.switching_cost < 0:
+        parser.error('--switching-cost must be finite and non-negative')
+    if people is None and topology is not None and any(n.roles or (n.rework_target and n.rework_target[1]) for n in topology):
+        parser.error('Task roles require people or role counts')
+    if people is not None and topology is not None:
+        try:
+            simulate(topology, args.team_size, 0, 0, 1, random.Random(0), people=people)
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.seed is None:
         args.seed = secrets.randbits(64)
     if args.team_size < 1 or args.iterations < 1:
@@ -162,7 +189,7 @@ def run(args, parser):
     rows, samples = [], {}
     representative = None
     for name, disc, rw, gf in [('Best', discovery * .5, min(args.rework_rate * .25, .049), .6), ('Nominal', discovery, args.rework_rate, 1), ('Worst', min(1, discovery * 1.5), min(1, max(.25, args.rework_rate * 1.5)), 1.5)]:
-        results = [simulate(trial_graph(name, i), args.team_size, disc, rw, gf, PairedRandom(paired_seeds[i]) if name == 'Nominal' else rng, task_periods=task_periods, complexity_risk=args.complexity_risk) for i in range(args.iterations)]
+        results = [simulate(trial_graph(name, i), args.team_size, disc, rw, gf, PairedRandom(paired_seeds[i]) if name == 'Nominal' else rng, task_periods=task_periods, complexity_risk=args.complexity_risk, people=people, switching_cost=args.switching_cost) for i in range(args.iterations)]
         values = sorted(result.duration for result in results)
         samples[name] = values
         if name == 'Nominal':
@@ -172,7 +199,10 @@ def run(args, parser):
         cells = [duration(x, args.days_per_period) for x in metrics]
         rows.append(f'| {name} | ' + ' | '.join(cells) + f' | {statistics.mean(values):.1f} | {statistics.pstdev(values):.1f} |')
     # Match logical event draws across the nominal and doubled-team trials.
-    doubled = sorted(simulate(trial_graph('Nominal', i), args.team_size * 2, discovery, args.rework_rate, 1, PairedRandom(seed), task_periods=task_periods, complexity_risk=args.complexity_risk).duration for i, seed in enumerate(paired_seeds))
+    doubled_people = [(f'{ident}:copy{copy}', roles) for copy in range(2) for ident, roles in people] if people is not None else None
+    doubled = sorted(simulate(trial_graph('Nominal', i), args.team_size * 2, discovery, args.rework_rate, 1, PairedRandom(seed), task_periods=task_periods, complexity_risk=args.complexity_risk, people=doubled_people, switching_cost=args.switching_cost).duration for i, seed in enumerate(paired_seeds))
+    if people is not None:
+        args.team_size = len(people)
     baseline = percentile(samples['Nominal'], .8)
     staffing_summary = staffing_comparison(baseline, percentile(doubled, .8), args.team_size)
     def write_png(path):
@@ -186,6 +216,8 @@ def run(args, parser):
         fig.savefig(path)
         plt.close(fig)
     lines = ['# Structural simulation', '', f'{"Topology input" if topology is not None else f"Pattern: {args.pattern}; scale: {args.scale}"}; uncertainty: {args.uncertainty}; rework rate: {args.rework_rate}; team size: {args.team_size}; reference tasks per period per team member: {args.tasks_per_period:g}; base task duration mode: {task_periods:g} periods; iterations per scenario: {args.iterations}; seed: {args.seed}', '', 'Reference tasks per period is the reciprocal of the task duration mode, not guaranteed throughput. Before any complexity factor, task durations follow a triangular distribution: 0.5 to 2 times the task mode, with the task mode as the most likely value. Waiting for reviews and approvals does not occupy development team slots. Rework is capped at 10 attempts per review.', '', '| Scenario | P50 | P80 | P90 | Mean | Standard deviation |', '| --- | --- | --- | --- | --- | --- |', *rows, '', staffing_summary, '', f'Representative nominal sample: {representative.duration:.1f} periods; review and approval waiting time on the displayed execution path: {representative.gate_time:.1f} periods ({(representative.gate_time / representative.duration * 100 if representative.duration else 0):.1f}% of elapsed time). Dashed edges represent resource contention; solid edges represent dependencies and rework.']
+    if people is not None:
+        lines.insert(4, f'People and capabilities: {people}; role switching cost: {args.switching_cost:g} periods. Staffing sensitivity duplicates each person and their capabilities.')
     if topology is None:
         lines.insert(4, f'Preset topology variation: {args.topology_variation}. Random variation is experimental and uncalibrated; linear and parallel skeletons remain fixed.')
     if args.complexity_risk != 'off':
