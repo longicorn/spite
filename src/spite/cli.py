@@ -21,7 +21,7 @@ def _build_parser():
     predict.add_argument('--best-factor', type=float, default=DEFAULT_BEST_FACTOR)
     predict.add_argument('--worst-factor', type=float, default=DEFAULT_WORST_FACTOR)
     predict.add_argument('--sigma', type=float, default=DEFAULT_SIGMA)
-    predict.add_argument('--format', choices=['terminal', 'markdown'], default='terminal')
+    predict.add_argument('--format', choices=['terminal', 'markdown', 'html'], default='terminal')
     predict.add_argument('--output', '-o', help='Root directory for stored runs')
     predict.add_argument('--show', action='store_true', help='Show the chart in a window')
     from .simulation.cli import configure
@@ -49,7 +49,7 @@ def main(argv=None):
         predict_parser.error('--worst-factor must be finite and greater than 1')
     if args.actual_periods is not None and (not math.isfinite(args.actual_periods) or args.actual_periods < 0):
         predict_parser.error('--actual-periods must be finite and non-negative')
-    if args.format == 'markdown' and args.show:
+    if args.format in ('markdown', 'html') and args.show:
         predict_parser.error('--show cannot be combined with --format markdown')
     scenarios = {}
     for name, factor in [('Best', args.best_factor), ('Nominal', 1), ('Worst', args.worst_factor)]:
@@ -61,20 +61,24 @@ def main(argv=None):
     report = render_markdown(scenarios, periods=args.periods, best_factor=args.best_factor,
                              worst_factor=args.worst_factor, actual_periods=args.actual_periods,
                              days_per_period=args.days_per_period)
+    html_report = None
+    if args.format == 'html':
+        from .html import render_html
+        html_report = render_html(report)
     if args.output:
         config = {key: getattr(args, key) for key in ('periods', 'actual_periods', 'days_per_period', 'best_factor', 'worst_factor', 'sigma', 'distribution')}
         snapshot = {'config': config, 'scenarios': {name: {'mu': params.mu, 'sigma': params.sigma, 'percentiles': percentiles} for name, (params, percentiles) in scenarios.items()}}
         def write_png(path):
             render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, output_path=str(path), show=args.show)
         try:
-            path, run_id = save_run(args.output, 'predict', snapshot, report, write_png if args.format == 'terminal' else None)
+            path, run_id = save_run(args.output, 'predict', snapshot, report, write_png if args.format == 'terminal' else None, html_report=html_report)
         except (OSError, ValueError) as exc:
             predict_parser.error(f'Cannot save run: {exc}')
-        print(f'Run ID: {run_id}\nReport: {path / "report.md"}\nSnapshot: {path / "snapshot.json"}')
+        print(f'Run ID: {run_id}\nReport: {path / ("report.html" if html_report is not None else "report.md")}\nSnapshot: {path / "snapshot.json"}')
         if args.format == 'terminal':
             print(f'Chart: {path / "chart.png"}')
-    elif args.format == 'markdown':
-        print(report, end='')
+    elif args.format in ('markdown', 'html'):
+        print(html_report if html_report is not None else report, end='')
     else:
         print(report.split('## Completion distribution')[0], end='')
         if args.actual_periods is not None:

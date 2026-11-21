@@ -25,7 +25,7 @@ def load_run(root, run_id, command):
     return data
 
 
-def save_run(root, command, snapshot, report, image_writer=None):
+def save_run(root, command, snapshot, report, image_writer=None, html_report=None):
     parent = Path(root) / command
     parent.mkdir(parents=True, exist_ok=True)
     run_id = uuid.uuid4().hex
@@ -36,6 +36,8 @@ def save_run(root, command, snapshot, report, image_writer=None):
                         command=command, run_id=run_id,
                         created_at=datetime.now(timezone.utc).isoformat())
         (temp / 'report.md').write_text(report, encoding='utf-8')
+        if html_report is not None:
+            (temp / 'report.html').write_text(html_report, encoding='utf-8')
         (temp / 'snapshot.json').write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, allow_nan=False) + '\n', encoding='utf-8')
         if image_writer:
             image_writer(temp / 'chart.png')

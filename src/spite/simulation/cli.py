@@ -24,7 +24,7 @@ def configure(subparsers):
     p.add_argument('--roles', help='Dedicated role counts, e.g. pm:1,dev:2')
     p.add_argument('--switching-cost', type=float, default=None, help='Periods added when a person changes roles')
     p.add_argument('--iterations', type=int, default=None)
-    p.add_argument('--format', choices=['markdown', 'terminal', 'png'], default='markdown')
+    p.add_argument('--format', choices=['markdown', 'terminal', 'png', 'html'], default='markdown')
     p.add_argument('--output', help='Root directory for stored runs')
     p.add_argument('--continue-from', help='Prior simulation run ID under --output')
     p.add_argument('--elapsed-periods', type=float, help='Total elapsed periods since project start')
@@ -247,9 +247,9 @@ def run(args, parser):
               f'In the Nominal scenario, about 50% of simulated projects finished within {p50}, '
               f'80% within {p80}, and 90% within {p90}.', '',
               'These results depend on the assumptions used in the simulation and do not guarantee actual completion times.']
-    if args.format == 'markdown' or args.output:
+    if args.format in ('markdown', 'html') or args.output:
         lines += ['', *distribution_chart(samples)]
-    if (args.format == 'markdown' or args.output) and representative.nodes:
+    if (args.format in ('markdown', 'html') or args.output) and representative.nodes:
         lines += ['', '## Representative topology', '', '```mermaid', 'flowchart LR']
         for i, node in enumerate(representative.nodes):
             safe_name = node.name.replace('&', '&amp;').replace('\"', '&quot;').replace('\n', ' ')
@@ -262,6 +262,10 @@ def run(args, parser):
                 lines.append(f'    class N{i} critical')
         lines += ['    classDef review fill:#ffe4a3,stroke:#b76e00', '    classDef critical stroke:#e74c3c,stroke-width:3px', '```']
     report = '\n'.join(lines) + '\n'
+    html_report = None
+    if args.format == 'html':
+        from ..html import render_html
+        html_report = render_html(report)
     if args.output:
         elapsed = topology_elapsed if topology is not None else (args.elapsed_periods or 0)
         config = {key: getattr(args, key) for key in defaults}
@@ -275,12 +279,13 @@ def run(args, parser):
                         'nodes': [vars(node) for node in representative.nodes], 'critical_path': representative.critical_path,
                         'resource_edges': representative.resource_edges}}
         try:
-            path, run_id = save_run(args.output, 'simulate', snapshot, report, write_png if args.format == 'png' else None)
+            path, run_id = save_run(args.output, 'simulate', snapshot, report, write_png if args.format == 'png' else None, html_report=html_report)
         except (OSError, ValueError) as exc:
             parser.error(f'Cannot save run: {exc}')
-        print(f'Run ID: {run_id}\nReport: {path / "report.md"}\nSnapshot: {path / "snapshot.json"}')
+        print(f'Run ID: {run_id}\nReport: {path / ("report.html" if html_report is not None else "report.md")}\nSnapshot: {path / "snapshot.json"}')
         if args.format == 'png':
             print(f'Chart: {path / "chart.png"}')
     else:
-        print(report, end='')
+        print(html_report if html_report is not None else report, end='')
+
     return 0
