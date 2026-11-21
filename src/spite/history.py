@@ -12,6 +12,7 @@ def configure(subparsers):
     p.add_argument('--days-per-period', type=positive_float, help='Optional calendar-day conversion for the observed timestamp span')
     p.add_argument('--forecast-id', help='Saved forecast run ID under --output')
     p.add_argument('--forecast-kind', choices=['simulate', 'predict'], default='simulate')
+    p.add_argument('--format', choices=['markdown', 'html'], default='markdown')
     p.add_argument('--output', help='Root directory for the report and snapshot')
     return p
 
@@ -153,6 +154,10 @@ def run(args, parser):
             lines.append(f'    {source} --> {target}')
         lines.append('```')
     report = '\n'.join(lines) + '\n'
+    html_report = None
+    if args.format == 'html':
+        from .html import render_html
+        html_report = render_html(report)
     if args.output:
         snapshot = {'branch': branch, 'base': base, 'head': head, 'shallow': shallow,
                     'commits': commits, 'work_units': len(commits) - merges, 'merge_commits': merges,
@@ -163,10 +168,11 @@ def run(args, parser):
                     'release_wait_end': last_merge.isoformat() if last_merge else None, 'release_wait_calendar_days': release_wait,
                     'forecast_id': args.forecast_id, 'forecast_kind': args.forecast_kind if forecast else None}
         try:
-            path, run_id = save_run(args.output, 'history', snapshot, report)
+            path, run_id = save_run(args.output, 'history', snapshot, report, html_report=html_report)
         except (OSError, ValueError) as exc:
             parser.error(f'Cannot save run: {exc}')
-        print(f'Run ID: {run_id}\nReport: {path / "report.md"}\nSnapshot: {path / "snapshot.json"}')
+        print(f'Run ID: {run_id}\nReport: {path / ("report.html" if html_report is not None else "report.md")}\nSnapshot: {path / "snapshot.json"}')
     else:
-        print(report, end='')
+        print(html_report if html_report is not None else report, end='')
+
     return 0

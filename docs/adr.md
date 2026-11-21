@@ -6,6 +6,39 @@ This document records shared architectural decisions. See the [Predict ADR](pred
 
 ---
 
+## ADR-0005: Self-contained HTML report format for sharing forecasts
+
+### Status
+Accepted.
+
+### Context
+Spite's primary deliverables are probabilistic forecasts and retrospective evaluations. While Markdown is well suited for developers inspecting reports inside a repository or editor, sharing results with business stakeholders, product managers, and external partners often requires a richer, visually clear presentation without requiring specialized Markdown viewers.
+
+Exporting to separate formats such as PDF often introduces heavy system or headless browser dependencies (e.g., WeasyPrint, Chromium), complicating installation and cross-platform compatibility. Furthermore, sharing multi-file bundles (HTML referencing local images) often leads to broken image links when files are distributed via chat tools or email.
+
+### Decision
+1. **Support `--format html` across reporting commands**:
+   - Provide `--format html` for commands generating reports (`predict`, `simulate`, and `history`).
+   - Markdown remains the default document format.
+2. **Self-contained, standalone single-file output**:
+   - All styles (CSS) must be embedded in `<style>` blocks within the HTML document.
+   - Any generated charts (e.g., probability distribution curves, DAG diagrams) must be inlined directly as base64-encoded data URIs (`data:image/png;base64,...`) when written to HTML.
+   - The document must render cleanly offline and when opened directly from a local filesystem (`file://`) without external network requests or CDN dependencies.
+3. **Print-to-PDF synergy**:
+   - Include print-friendly CSS media queries (`@media print`) so users can export high-quality PDFs directly via standard browser print functionality, eliminating native PDF rendering dependencies.
+4. **Lightweight rendering architecture**:
+   - Keep rendering logic lightweight and avoid heavy external dependencies.
+
+### Consequences
+- **Positive**:
+  - Teams can effortlessly distribute forecast reports as a single attachment that renders identically on any browser.
+  - Zero heavy external PDF dependencies required; high-quality PDF generation is offloaded to the user's browser print engine.
+  - No broken image links during file transfers.
+- **Negative / Trade-offs**:
+  - Inlining base64 images increases the raw HTML file size slightly compared to separate text files.
+
+---
+
 ## ADR-0004: Abstract periods and optional day conversion
 
 ### Status
