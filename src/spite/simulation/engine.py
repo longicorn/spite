@@ -13,6 +13,10 @@ class Node:
     effort: float = 1.0
     roles: tuple[str, ...] = ()
     rework_target: tuple[str, tuple[str, ...]] | None = None
+    rework_target_effort: float = 1.0
+    rework_probability: float | None = None
+    rework_fraction: float = 1.0
+    discovery_effort: float = 1.0
 
 
 @dataclass
@@ -24,13 +28,16 @@ class Result:
     resource_edges: list[tuple[int, int]]
 
 
-def generate(pattern, scale, task_count=None, topology_rng=None):
+def generate(pattern, scale, task_count=None, topology_rng=None, design_effort=1.0, dev_effort=1.0, effort_trend="flat", completed_tasks=0):
     n = {'small': 8, 'medium': 20, 'large': 40}[scale]
     if task_count is not None:
         n = task_count
     if n == 0:
         return []
-    nodes = [Node('Start', 'task', ())]
+    offset = completed_tasks / (completed_tasks + n) if completed_tasks else 0
+    trend = {'flat': 0, 'fatigue': .5, 'accelerating': -.3}[effort_trend]
+    nodes = [Node('Start', 'task', (), dev_effort * (1 + trend * offset) if completed_tasks else design_effort)]
+    development_indices = [i for i in range(1, n) if i % 7 != 0]
     for i in range(1, n):
         if pattern == 'linear':
             deps = (i - 1,)
@@ -43,7 +50,9 @@ def generate(pattern, scale, task_count=None, topology_rng=None):
             deps = (max(0, i - 3),) if i % 4 else tuple(range(max(0, i - 3), i))
         kind = 'gate' if i % 7 == 0 else 'exploratory' if pattern == 'exploratory' or i % 5 == 0 else 'task'
         label = 'Review' if kind == 'gate' else kind.title()
-        nodes.append(Node(f'{label} {i}', kind, deps))
+        progress = development_indices.index(i) / (len(development_indices) - 1) if kind != 'gate' and len(development_indices) > 1 else 0
+        multiplier = 1 + trend * (offset + (1 - offset) * progress)
+        nodes.append(Node(f'{label} {i}', kind, deps, dev_effort * multiplier if kind != 'gate' else 1.0))
     if topology_rng is not None and pattern in ('complex', 'exploratory'):
         used = {dep for node in nodes for dep in node.deps}
         final_deps = tuple(i for i in range(n) if i not in used)
@@ -183,7 +192,7 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
                 for j, role in slot:
                     members[j][2] = now
                     members[j][3] = execution_id
-        if nodes[i].kind == 'gate' and attempts[i] < 10 and random_source((keys[i], "rework", attempts[i])).random() < rework:
+        if nodes[i].kind == 'gate' and attempts[i] < 10 and random_source((keys[i], "rework", attempts[i])).random() < (nodes[i].rework_probability if nodes[i].rework_probability is not None else rework):
             attempts[i] += 1
             # Re-execute the latest engineering prerequisite, preserving its effort.
             candidates = [d for d in original[i].deps if original[d].kind != 'gate'] if i < len(original) else []
@@ -191,12 +200,12 @@ def simulate(nodes, team_size, discovery, rework, gate_factor, rng, task_periods
                 candidates = [j for j in range(min(i, len(original))) if original[j].kind != 'gate']
             target = max(candidates, key=lambda d: ranks[d]) if candidates else None
             explicit = original[i].rework_target if i < len(original) else None
-            source = Node(explicit[0], 'task', (), roles=explicit[1]) if explicit else original[target] if target is not None else Node('Work', 'task', ())
-            insert(Node(f'{source.name} (rework {attempts[i]})', 'task', (), source.effort, source.roles), [i], ranks[i] + 1, [execution_id], (keys[i], "rework", attempts[i]))
+            source = Node(explicit[0], 'task', (), effort=original[i].rework_target_effort, roles=explicit[1]) if explicit else original[target] if target is not None else Node('Work', 'task', ())
+            insert(Node(f'{source.name} (rework {attempts[i]})', 'task', (), source.effort * nodes[i].rework_fraction, source.roles), [i], ranks[i] + 1, [execution_id], (keys[i], "rework", attempts[i]))
             prerequisites[i] = []
             continue
         if nodes[i].kind == 'exploratory' and random_source((keys[i], "discovery")).random() < discovery:
-            insert(Node(f'Discovery {i}', 'task', (), roles=nodes[i].roles), list(children[i]), ranks[i], [execution_id], (keys[i], "discovery"))
+            insert(Node(f'Discovery {i}', 'task', (), effort=nodes[i].discovery_effort, roles=nodes[i].roles), list(children[i]), ranks[i], [execution_id], (keys[i], "discovery"))
         for child in children[i]:
             prerequisites[child].append(execution_id)
             remaining[child] -= 1

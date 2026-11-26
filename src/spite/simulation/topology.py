@@ -23,7 +23,7 @@ def load(path):
         raise ValueError('tasks must be a list')
     by_id = {}
     for task in tasks:
-        if not isinstance(task, dict) or not {'id', 'name', 'kind', 'status', 'depends_on'} <= set(task) or set(task) - {'id', 'name', 'kind', 'status', 'depends_on', 'roles', 'rework_target'}:
+        if not isinstance(task, dict) or not {'id', 'name', 'kind', 'status', 'depends_on'} <= set(task) or set(task) - {'id', 'name', 'kind', 'status', 'depends_on', 'roles', 'rework_target', 'effort', 'rework_probability', 'rework_fraction', 'discovery_effort'}:
             raise ValueError('Each task must contain id, name, kind, status and depends_on')
         ident = task['id']
         if not isinstance(ident, str) or not ident.strip() or ident in by_id:
@@ -41,6 +41,11 @@ def load(path):
             raise ValueError(f'{ident}: gates cannot require roles')
         if 'rework_target' in task and (task['kind'] != 'gate' or not isinstance(task['rework_target'], str) or not task['rework_target'].strip()):
             raise ValueError(f'{ident}: rework_target must be a task ID on a gate')
+        for field in ('effort', 'rework_probability', 'rework_fraction', 'discovery_effort'):
+            if field in task:
+                value = task[field]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (field == 'effort' and (value <= 0 or task['kind'] == 'gate')) or (field == 'rework_probability' and (not 0 <= value <= 1 or task['kind'] != 'gate')) or (field == 'rework_fraction' and (not 0 <= value <= 1 or task['kind'] != 'gate')) or (field == 'discovery_effort' and (value <= 0 or task['kind'] != 'exploratory')):
+                    raise ValueError(f'{ident}: invalid {field}')
         deps = task['depends_on']
         if not isinstance(deps, list) or any(not isinstance(d, str) for d in deps) or len(set(deps)) != len(deps):
             raise ValueError(f'{ident}: depends_on must be a list of distinct IDs')
@@ -82,7 +87,7 @@ def load(path):
             indices[ident] = len(nodes)
             target = by_id.get(task.get('rework_target'))
             rework_target = (target['name'], tuple(target.get('roles') or [])) if target else None
-            nodes.append(Node(task['name'], task['kind'], tuple(indices[d] for d in task['depends_on'] if d in indices), roles=tuple(task.get('roles') or []), rework_target=rework_target))
+            nodes.append(Node(task['name'], task['kind'], tuple(indices[d] for d in task['depends_on'] if d in indices), effort=task.get('effort', 1.0), roles=tuple(task.get('roles') or []), rework_target=rework_target, rework_target_effort=target.get('effort', 1.0) if target else 1.0, rework_probability=task.get('rework_probability'), rework_fraction=task.get('rework_fraction', 1.0), discovery_effort=task.get('discovery_effort', 1.0)))
     return nodes, elapsed, sum(t['status'] == 'completed' for t in tasks)
 
 
