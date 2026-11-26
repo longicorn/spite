@@ -6,6 +6,46 @@ This document records shared architectural decisions. See the [Predict ADR](pred
 
 ---
 
+## ADR-0006: Target Completion Probability Evaluation for Forecasts
+
+### Status
+Accepted.
+
+### Context
+While percentile forecasts (such as P50, P80, P90) describe the shape of uncertainty, project managers and stakeholders frequently ask a specific forward-looking question: "What is the probability of delivering on or before date/milestone X?" or "What is our risk of delay past X?"
+
+Without explicit target evaluation, users must manually interpolate between percentiles or guess where their deadline falls on the distribution curve. Furthermore, to adhere to ADR-0004, target evaluations must avoid false calendar precision and maintain consistency between abstract periods and optional day multipliers.
+
+### Decision
+1. **Unified Target CLI Options**:
+   - Provide `--target-periods <float>` across both `predict` and `simulate` to accept a target duration in abstract periods.
+   - Provide `--target-days <float>` as a convenience option when `--days-per-period` is specified (converting days to periods via `target_periods = target_days / days_per_period`). `--target-days` requires `--days-per-period` and cannot be combined with `--target-periods`.
+   - Adhere strictly to ADR-0004: do not attempt calendar dates or holiday calculations.
+2. **Dual Metric Reporting (Completion Probability & Delay Risk)**:
+   - For each scenario (Best, Nominal, Worst), calculate and report both:
+     - **Completion Probability**: $P(\text{Duration} \le \text{target})$ as a percentage.
+     - **Delay Risk (Tail Probability)**: $P(\text{Duration} > \text{target}) = 1 - P(\text{Duration} \le \text{target})$ as a percentage.
+3. **Engine-Specific Computation**:
+   - In `predict`: Compute analytically using the cumulative distribution function (CDF) and survival function (SF) of the fitted lognormal distribution.
+   - In `simulate`: Compute empirically from the completed Monte Carlo trial durations ($\text{count}(\text{duration} \le \text{target}) / N$).
+4. **Consistent Multi-format Output**:
+   - In terminal, Markdown, and HTML reports, show whole percentages in one column, for example `73% (delay 27%)`. Round completion probability to the nearest integer with half rounded up and derive the displayed delay percentage as its complement. For nonzero probabilities below 0.5%, show `<1% (delay >99%)`; when completion is at least 99.5% and delay is nonzero, show `>99% (delay <1%)`. Exact zero or one is displayed as `0%` or `100%`. Simulation results are empirical estimates.
+   - Preserve unrounded completion and delay probabilities in structured `snapshot.json`.
+5. **Distribution Target Visualization**:
+   - In Matplotlib-based visualizations (HTML report embedded images, `--format png`, and interactive `--show`), render a dedicated vertical reference line for the target duration across scenarios, styled distinctly from retrospective actual duration lines.
+   - In terminal ASCII distribution plots, mark the target duration with a dedicated row indicator.
+   - In Markdown reports, defer vertical lines inside Mermaid `xychart-beta` blocks due to syntax limitations, relying on the executive summary table while keeping Mermaid vertical line support as a future enhancement.
+
+### Consequences
+- **Positive**:
+  - Directly answers deadline-feasibility questions for stakeholders with concrete probability metrics.
+  - Aligns cleanly with ADR-0004 without adding calendar logic complexity.
+  - Shared semantics across both parametric (`predict`) and structural simulation (`simulate`) commands.
+- **Negative / Trade-offs**:
+  - Probabilities remain conditional on model assumptions (e.g., team size, uncertainty level, mode); documentation must emphasize that high probability does not eliminate Black Swan events.
+
+---
+
 ## ADR-0005: Self-contained HTML report format for sharing forecasts
 
 ### Status
