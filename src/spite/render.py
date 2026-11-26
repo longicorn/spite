@@ -7,23 +7,26 @@ from .units import duration
 COLORS = {'Best': 'tab:green', 'Nominal': 'tab:blue', 'Worst': 'tab:red'}
 
 
-def render_ascii(scenarios, *, actual_periods=None, width=48, bins=24):
+def render_ascii(scenarios, *, actual_periods=None, target_periods=None, width=48, bins=24):
     upper = max(max(p.values()) for _, p in scenarios.values()) * 1.5
     if actual_periods is not None:
         upper = max(upper, actual_periods * 1.05)
+    if target_periods is not None:
+        upper = max(upper, target_periods * 1.05)
     xs = np.linspace(upper / bins, upper, bins)
     densities = {name: pdf(params, xs) for name, (params, _) in scenarios.items()}
     maximum = max(float(values.max()) for values in densities.values()) or 1
     symbols = {'Best': '#', 'Nominal': '+', 'Worst': '.'}
     actual_idx = int(np.abs(xs - actual_periods).argmin()) if actual_periods is not None else None
+    target_idx = int(np.abs(xs - target_periods).argmin()) if target_periods is not None else None
     lines = ['Legend: # Best  + Nominal  . Worst']
     for i, x in enumerate(xs):
         bars = [symbols[name] * round(float(values[i]) / maximum * width) for name, values in densities.items()]
-        lines.append(f'{x:6.1f} periods | ' + ' | '.join(bars) + (f'  ^ Actual: {actual_periods:g} periods' if i == actual_idx else ''))
+        lines.append(f'{x:6.1f} periods | ' + ' | '.join(bars) + (f'  ^ Actual: {actual_periods:g} periods' if i == actual_idx else '') + (f'  ^ Target: {target_periods:g} periods' if i == target_idx else ''))
     return '\n'.join(lines)
 
 
-def render_matplotlib(scenarios, *, actual_periods=None, days_per_period=None, output_path=None, show=False):
+def render_matplotlib(scenarios, *, actual_periods=None, target_periods=None, days_per_period=None, output_path=None, show=False):
     import matplotlib
     if not show:
         matplotlib.use('Agg')
@@ -32,6 +35,8 @@ def render_matplotlib(scenarios, *, actual_periods=None, days_per_period=None, o
     upper = max(max(p.values()) for _, p in scenarios.values()) * 1.5
     if actual_periods is not None:
         upper = max(upper, actual_periods * 1.05)
+    if target_periods is not None:
+        upper = max(upper, target_periods * 1.05)
     xs = np.linspace(0, upper, 600)
     for name, (params, percentiles) in scenarios.items():
         ax.plot(xs, pdf(params, xs), label=name, color=COLORS[name])
@@ -40,6 +45,8 @@ def render_matplotlib(scenarios, *, actual_periods=None, days_per_period=None, o
             ax.text(value, .96, label.upper(), rotation=90, va='top', color=COLORS[name], transform=ax.get_xaxis_transform(), fontsize=8)
     if actual_periods is not None:
         ax.axvline(actual_periods, color='black', linestyle='-.', label=f'Actual: {actual_periods:g} periods')
+    if target_periods is not None:
+        ax.axvline(target_periods, color='darkorange', linestyle=':', linewidth=2, label=f'Target: {target_periods:g} periods')
     ax.set(xlim=(0, upper), xlabel='Periods', ylabel='Probability density', title='Delivery forecast (lognormal)')
     ax.legend()
     table_ax.axis('off')

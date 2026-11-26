@@ -5,7 +5,7 @@ import io
 import re
 
 
-def diagram(source):
+def diagram(source, *, target_periods=None, actual_periods=None, target_label="Target"):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -16,7 +16,11 @@ def diagram(source):
             values = [float(x) for x in line.split(',')]
             ax.plot([float(upper.group(1)) * i / (len(values) - 1) for i in range(len(values))], values, color=color)
         ax.set(xlabel='Periods', ylabel='Probability density', title='Completion time by scenario')
-        ax.legend(['Best', 'Nominal', 'Worst'])
+        if actual_periods is not None:
+            ax.axvline(actual_periods, color='black', linestyle='-.', label=f'Actual: {actual_periods:g} periods')
+        if target_periods is not None:
+            ax.axvline(target_periods, color='darkorange', linestyle=':', linewidth=2, label=f'{target_label}: {target_periods:g} periods')
+        ax.legend(['Best', 'Nominal', 'Worst'] + ([f'Actual: {actual_periods:g} periods'] if actual_periods is not None else []) + ([f'{target_label}: {target_periods:g} periods'] if target_periods is not None else []))
     else:
         nodes = dict(re.findall(r'^\s*(\w+)\["(.*?)"\]', source, re.M))
         edges = re.findall(r'^\s*(\w+)\s+(-\.->|-->)\s+(\w+)', source, re.M)
@@ -83,7 +87,7 @@ def diagram(source):
     return base64.b64encode(buffer.getvalue()).decode('ascii')
 
 
-def render_html(markdown):
+def render_html(markdown, *, target_periods=None, actual_periods=None, target_label="Target"):
     lines = markdown.splitlines()
     output = []
     i = 0
@@ -94,7 +98,7 @@ def render_html(markdown):
             block = []
             while i < len(lines) and lines[i] != '```':
                 block.append(lines[i]); i += 1
-            output.append('<img alt="Report diagram" src="data:image/png;base64,' + diagram('\n'.join(block)) + '">')
+            output.append('<img alt="Report diagram" src="data:image/png;base64,' + diagram('\n'.join(block), target_periods=target_periods, actual_periods=actual_periods, target_label=target_label) + '">')
         elif line.startswith('|'):
             rows = []
             while i < len(lines) and lines[i].startswith('|'):

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from ..units import duration, positive_float
 from ..storage import load_run, save_run
+from .. import target
 from .engine import PairedRandom, generate, simulate
 
 
@@ -14,6 +15,7 @@ def configure(subparsers):
     p = subparsers.add_parser('simulate', help='Structural Monte Carlo forecasting')
     p.add_argument('--tasks-per-period', type=positive_float, default=None, help='Reference tasks per period per team member; task duration mode is its reciprocal (default: 1)')
     p.add_argument('--days-per-period', type=positive_float, help='Optional approximate days per period')
+    target.configure(p)
     p.add_argument('--pattern', choices=['linear', 'parallel', 'complex', 'exploratory'], default=None)
     p.add_argument('--scale', choices=['small', 'medium', 'large'], default=None)
     p.add_argument('--topology-variation', choices=['off', 'random'], default=None, help='Experimental preset initial structure variation (default: off)')
@@ -147,6 +149,7 @@ def run(args, parser):
     for key, default in defaults.items():
         if getattr(args, key) is None:
             setattr(args, key, parent['config'].get(key, default) if parent else default)
+    target_periods = target.resolve(args, parser)
     if args.roles is not None:
         try:
             counts = {}
@@ -210,6 +213,9 @@ def run(args, parser):
         fig, ax = plt.subplots()
         for name, values in samples.items():
             ax.hist(values, bins=20, alpha=.45, label=name)
+        if target_periods is not None:
+            remaining_target = target_periods - (topology_elapsed if topology is not None else (args.elapsed_periods or 0))
+            ax.axvline(remaining_target, color='darkorange', linestyle=':', linewidth=2, label=f'Target (remaining): {remaining_target:g} periods')
         ax.set(xlabel='Periods', ylabel='Samples', title=f'Structural simulation ({args.tasks_per_period:g} reference tasks per period per member)' + (f' (1 period ≈ {args.days_per_period:g} days)' if args.days_per_period is not None else ''))
         ax.legend()
         fig.tight_layout()
@@ -241,6 +247,18 @@ def run(args, parser):
             lines.append(f'| {name} | ' + ' | '.join(duration(topology_elapsed + percentile(values, q), args.days_per_period) for q in (.5, .8, .9)) + ' |')
     if args.days_per_period is not None:
         lines.insert(3, f'Approximate conversion: 1 period = {args.days_per_period:g} days; conversions use unrounded values and no calendar or holidays are applied.')
+    probabilities = None
+    if target_periods is not None:
+        elapsed_target = topology_elapsed if topology is not None else (args.elapsed_periods or 0)
+        probabilities = {}
+        for name, trial_values in samples.items():
+            completed = sum(elapsed_target + value <= target_periods for value in trial_values)
+            probabilities[name] = (completed / len(trial_values), (len(trial_values) - completed) / len(trial_values))
+        target_report = target.report(target_periods, probabilities, args.days_per_period).rstrip()
+        target_report += '\n\nProbabilities are empirical estimates from simulation trials; 0% or 100% does not guarantee the true probability.'
+        if target_periods < elapsed_target:
+            target_report = target_report.replace('## Target evaluation\n', '## Target evaluation\n\nWarning: Target duration is earlier than the elapsed duration. Check the target and progress inputs.\n', 1)
+        lines += ['', target_report]
     values = samples['Nominal']
     p50, p80, p90 = (duration(percentile(values, q), args.days_per_period) for q in (.5, .8, .9))
     lines += ['', '## What the nominal forecast means', '',
@@ -265,7 +283,7 @@ def run(args, parser):
     html_report = None
     if args.format == 'html':
         from ..html import render_html
-        html_report = render_html(report)
+        html_report = render_html(report, target_periods=(target_periods - (topology_elapsed if topology is not None else (args.elapsed_periods or 0))) if target_periods is not None else None, target_label='Target (remaining)')
     if args.output:
         elapsed = topology_elapsed if topology is not None else (args.elapsed_periods or 0)
         config = {key: getattr(args, key) for key in defaults}
@@ -278,6 +296,8 @@ def run(args, parser):
                     'representative': {'duration': representative.duration, 'gate_time': representative.gate_time,
                         'nodes': [vars(node) for node in representative.nodes], 'critical_path': representative.critical_path,
                         'resource_edges': representative.resource_edges}}
+        if probabilities is not None:
+            snapshot['target'] = {'periods': target_periods, 'scenarios': {name: {'completion_probability': p, 'delay_risk': q} for name, (p, q) in probabilities.items()}}
         try:
             path, run_id = save_run(args.output, 'simulate', snapshot, report, write_png if args.format == 'png' else None, html_report=html_report)
         except (OSError, ValueError) as exc:

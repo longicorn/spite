@@ -8,6 +8,8 @@ from .params import DEFAULT_BEST_FACTOR, DEFAULT_SIGMA, DEFAULT_WORST_FACTOR, pa
 from .render import render_ascii, render_matplotlib, render_markdown
 from .units import positive_float
 from .storage import save_run
+from . import target
+from .lognormal import completion_probability, remaining_probability
 
 
 def _build_parser():
@@ -18,6 +20,7 @@ def _build_parser():
     predict.add_argument('--periods', type=positive_float, required=True, help='Nominal scenario mode in periods')
     predict.add_argument('--actual-periods', type=float, help='Actual completion duration in periods')
     predict.add_argument('--days-per-period', type=positive_float, help='Optional approximate days per period')
+    target.configure(predict)
     predict.add_argument('--best-factor', type=float, default=DEFAULT_BEST_FACTOR)
     predict.add_argument('--worst-factor', type=float, default=DEFAULT_WORST_FACTOR)
     predict.add_argument('--sigma', type=float, default=DEFAULT_SIGMA)
@@ -51,6 +54,7 @@ def main(argv=None):
         predict_parser.error('--actual-periods must be finite and non-negative')
     if args.format in ('markdown', 'html') and args.show:
         predict_parser.error('--show cannot be combined with --format markdown')
+    target_periods = target.resolve(args, predict_parser)
     scenarios = {}
     for name, factor in [('Best', args.best_factor), ('Nominal', 1), ('Worst', args.worst_factor)]:
         try:
@@ -61,15 +65,20 @@ def main(argv=None):
     report = render_markdown(scenarios, periods=args.periods, best_factor=args.best_factor,
                              worst_factor=args.worst_factor, actual_periods=args.actual_periods,
                              days_per_period=args.days_per_period)
+    probabilities = ({name: (completion_probability(params, target_periods), remaining_probability(params, target_periods)) for name, (params, _) in scenarios.items()} if target_periods is not None else None)
+    if probabilities is not None:
+        report = report.replace('## Completion distribution', target.report(target_periods, probabilities, args.days_per_period) + '\n## Completion distribution')
     html_report = None
     if args.format == 'html':
         from .html import render_html
-        html_report = render_html(report)
+        html_report = render_html(report, target_periods=target_periods, actual_periods=args.actual_periods)
     if args.output:
         config = {key: getattr(args, key) for key in ('periods', 'actual_periods', 'days_per_period', 'best_factor', 'worst_factor', 'sigma', 'distribution')}
         snapshot = {'config': config, 'scenarios': {name: {'mu': params.mu, 'sigma': params.sigma, 'percentiles': percentiles} for name, (params, percentiles) in scenarios.items()}}
+        if probabilities is not None:
+            snapshot['target'] = {'periods': target_periods, 'scenarios': {name: {'completion_probability': p, 'delay_risk': q} for name, (p, q) in probabilities.items()}}
         def write_png(path):
-            render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, output_path=str(path), show=args.show)
+            render_matplotlib(scenarios, actual_periods=args.actual_periods, target_periods=target_periods, days_per_period=args.days_per_period, output_path=str(path), show=args.show)
         try:
             path, run_id = save_run(args.output, 'predict', snapshot, report, write_png if args.format == 'terminal' else None, html_report=html_report)
         except (OSError, ValueError) as exc:
@@ -84,7 +93,7 @@ def main(argv=None):
         if args.actual_periods is not None:
             print('\n## Retrospective (Nominal)' + report.split('## Retrospective (Nominal)')[1], end='')
         if args.show:
-            render_matplotlib(scenarios, actual_periods=args.actual_periods, days_per_period=args.days_per_period, show=True)
+            render_matplotlib(scenarios, actual_periods=args.actual_periods, target_periods=target_periods, days_per_period=args.days_per_period, show=True)
         else:
-            print(render_ascii(scenarios, actual_periods=args.actual_periods))
+            print(render_ascii(scenarios, actual_periods=args.actual_periods, target_periods=target_periods))
     return 0
