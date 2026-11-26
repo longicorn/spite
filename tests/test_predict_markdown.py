@@ -77,5 +77,27 @@ class PredictTests(unittest.TestCase):
         self.assertNotIn('start:', report)
 
 
+    def test_target_report_rounds_completion_and_complements_delay(self):
+        from spite.target import report
+
+        result = report(10, {'Nominal': (0.725, 0.275), 'Worst': (0.9999, 0.0001), 'Low': (0.0049, 0.9951), 'Zero': (0, 1), 'Full': (1, 0), 'Boundary': (0.005, 0.995), 'High': (0.995, 0.005), 'Tail': (1.0, 1e-20)}, None)
+        self.assertIn('| Scenario | Completion probability |', result)
+        self.assertIn('| Nominal | 73% (delay 27%) |', result)
+        self.assertIn('| Worst | >99% (delay <1%) |', result)
+        for expected in ('| Low | <1% (delay >99%) |', '| Zero | 0% (delay 100%) |', '| Full | 100% (delay 0%) |', '| Boundary | 1% (delay 99%) |', '| High | >99% (delay <1%) |', '| Tail | >99% (delay <1%) |'):
+            self.assertIn(expected, result)
+
+    def test_target_and_actual_markers_share_ascii_chart(self):
+        from spite.params import params_from_mode_and_sigma
+        from spite.lognormal import percentile_days
+        from spite.render import render_ascii
+
+        params = params_from_mode_and_sigma(10, 0.4)
+        scenarios = {name: (params, {'p90': percentile_days(params, .9)}) for name in ('Best', 'Nominal', 'Worst')}
+        chart = render_ascii(scenarios, actual_periods=10, target_periods=100)
+        self.assertIn('^ Actual: 10 periods', chart)
+        self.assertIn('^ Target: 100 periods', chart)
+
+
 if __name__ == '__main__':
     unittest.main()
