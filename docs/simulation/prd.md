@@ -53,6 +53,8 @@ uv run spite simulate [OPTIONS]
 
 #### Core Inputs & Parameters
 - `--days-per-period` (positive number, optional): Approximate days per period; no calendar or holiday calculation.
+- `--target-periods` (positive number, optional): Target completion duration in abstract periods to evaluate probability of on-time delivery and delay risk.
+- `--target-days` (positive number, optional): Target completion duration in approximate days (converted to periods via `--days-per-period`; requires `--days-per-period`, mutually exclusive with `--target-periods`).
 - `--pattern` (Enum: `linear`, `parallel`, `complex`, `exploratory`, Default: `complex`): Structural topology template.
 - `--scale` (Enum: `small`, `medium`, `large`, Default: `medium`): Base scope indicating approximate expected node volume.
 - `--uncertainty` (Enum: `low`, `medium`, `high`, Default: `medium`): Propensity to discover hidden nodes and edges during execution.
@@ -108,11 +110,14 @@ When `--format markdown` is selected, the tool generates a fully self-contained 
 1. **Executive Summary Table**:
    - P50 (Median), P80, and P90 completion durations in periods, with optional approximate days for Best, Nominal, and Worst scenarios.
    - Identified critical path bottleneck summary (e.g., "Review and approval waiting accounted for 32% of critical path").
+   - When the target is strictly less than elapsed duration, include a warning in the target evaluation advising users to check target and progress inputs. Equality does not trigger the warning.
+   - When `--target-periods` or `--target-days` is specified: empirical on-time completion probability ($P(\text{Duration} \le \text{target})$) and delay risk ($P(\text{Duration} > \text{target})$) across Best, Nominal, and Worst scenarios.
 2. **Mermaid Topology Visualization**:
    - A representative project DAG rendered via Mermaid `flowchart LR` / `flowchart TD`.
    - Node styling highlighting the critical path (`style NodeX stroke:#e74c3c,stroke-width:3px`) and review and approval bottlenecks.
 3. **Empirical Distribution Representation**:
-   - Percentile tables, a plain-language explanation of the Nominal P50, P80 and P90, and a Mermaid `xychart-beta` chart of the simulated empirical distributions. Explain that results depend on assumptions and do not guarantee actual completion times.
+   - Percentile tables, a plain-language explanation of the Nominal P50, P80 and P90, and a distribution chart of the simulated empirical distributions. Explain that results depend on assumptions and do not guarantee actual completion times.
+   - When target evaluation is specified, Matplotlib outputs (HTML reports and `--format png`) display a distinct vertical reference line for the target duration. In Mermaid `xychart-beta` charts, vertical target lines are deferred due to Mermaid syntax limitations, relying on the executive summary table.
 4. **Actionable Recommendations**:
    - Staffing sensitivity assessment (e.g., "Increasing team size from 2 to 4 yields only a 6% P80 reduction due to linear review dependencies").
 

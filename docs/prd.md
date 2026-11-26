@@ -8,6 +8,8 @@ Spite is an experimental tool for forecasting software delivery as a probability
 
 Both use abstract periods. The user defines what a period means, such as a sprint. An optional days-per-period multiplier displays an approximate duration; Spite does not calculate calendar dates or holidays. See the [shared ADR](adr.md). Point-based work and calibration from project data are future work, not current simulation inputs.
 
+Both `predict` and `simulate` can evaluate completion probability against a user-defined target duration (`--target-periods` or `--target-days`), reporting on-time completion chances and delay risks across scenarios. When target evaluation is active, distribution charts in Matplotlib (PNG/GUI) and HTML reports display a distinct vertical reference line for the target (distinguishable from any retrospective actual duration line), and terminal ASCII displays indicate the target position. Markdown reports retain Mermaid syntax without target vertical lines due to syntax limitations, relying instead on structured summary sections and deferring Mermaid reference line support to future enhancements.
+
 [History](history/prd.md) reports observed Git history on the current branch and can compare its timestamp span with a saved forecast.
 
 ## Reporting and Output Formats

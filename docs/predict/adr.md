@@ -64,3 +64,28 @@ Additionally, completed projects with severe delays may fall far into the tail o
 
 ---
 
+## ADR-0003: Multi-Scenario Target Probability Evaluation Using Analytic Lognormal CDF
+
+### Status
+Accepted
+
+### Context
+In addition to retrospective review against actual completed durations (ADR-0002), teams frequently need forward-looking probability assessments against specific targets (such as business milestones or contractual deadlines).
+
+Unlike retrospective evaluation—which is evaluated solely against the Nominal scenario to maintain a single benchmark—forward target evaluations are intended for risk exploration and decision-making across all three conditional scenarios (Best, Nominal, Worst).
+
+### Decision
+1. **Analytic CDF Calculation across All Scenarios**:
+   - When `--target-periods` (or `--target-days`) is specified, calculate the cumulative probability $P(\text{Duration} \le \text{target})$ analytically using the CDF of the lognormal distribution for each scenario:
+     $$F_{\text{scenario}}(\text{target}) = \Phi\left(\frac{\ln(\text{target}) - \mu_{\text{scenario}}}{\sigma}\right)$$
+   - Report the delay risk using the survival function ($1 - \text{CDF}$) to preserve precision in the upper tail.
+2. **Distinct Semantics from Retrospective Mode**:
+   - While `--actual-periods` represents an observed historical fact evaluated against Nominal, target evaluation represents a hypothetical threshold evaluated across all scenarios.
+   - Both can coexist in a report if a user wishes to compare both a historical actual and a target deadline.
+
+### Consequences
+- **Positive**: Provides instantaneous, mathematically exact completion probabilities for Best, Nominal, and Worst scenarios without Monte Carlo overhead.
+- **Negative / Trade-offs**: Relies on the assumption that scenario mode multipliers (0.8, 1.5) and $\sigma = 0.5$ accurately bound real-world spread.
+
+---
+

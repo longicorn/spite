@@ -143,3 +143,7 @@ Template and Git draft generation write YAML to standard output. Git selects non
 ## Decision: Explicit gate rework target
 
 Keep gates as resource-free waiting and rejection events; model staffed review as a separate task. A YAML gate can specify `rework_target` as an upstream non-gate task ID, including a completed task. Rejection repeats that task with its roles and retries the gate; intervening tasks are not repeated. Omission preserves the existing automatic target selection. Reject non-empty gate roles to avoid silently ignoring resource requirements.
+
+## Decision: Empirical target completion probability evaluation
+
+Accept `--target-periods` and `--target-days` as described in shared [ADR-0006](../adr.md) and the [PRD](prd.md). For each scenario's simulated completion duration sample array, compute the empirical on-time completion probability as $\text{count}(\text{duration} \le \text{target}) / N$ and the delay risk as $1 - P(\text{completion})$. Include the resulting metrics in all report formats (Markdown, terminal, HTML) and snapshots.
