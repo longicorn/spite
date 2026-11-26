@@ -147,3 +147,22 @@ Keep gates as resource-free waiting and rejection events; model staffed review a
 ## Decision: Empirical target completion probability evaluation
 
 Accept `--target-periods` and `--target-days` as described in shared [ADR-0006](../adr.md) and the [PRD](prd.md). For each scenario's simulated completion duration sample array, compute the empirical on-time completion probability as $\text{count}(\text{duration} \le \text{target}) / N$ and the delay risk as $1 - P(\text{completion})$. Include the resulting metrics in all report formats (Markdown, terminal, HTML) and snapshots.
+
+## Decision: Task effort scaling and gate rework probability
+
+Accept the `effort` and `rework_probability` extensions described in the [PRD](prd.md):
+1. **Task effort**: Engineering tasks in YAML topologies accept an optional finite positive `effort` (default 1.0; forbidden on gates). Duration sampling scales proportionally with `effort`, widening duration dispersion for larger tasks. Discovered work defaults to effort 1.0 and can be configured using exploratory task `discovery_effort`. Rework uses the target effort multiplied by the gate's `rework_fraction` fraction (default 1.0). Roles are inherited.
+2. **Gate rework probability**: Gates in YAML topologies accept an optional `rework_probability` in `[0.0, 1.0]`, overriding the scenario-wide rework setting specifically at that gate. Non-gate tasks cannot specify `rework_probability`.
+
+## Decision: Lifecycle phase effort scaling and progression trends in preset topologies
+
+To capture real-world development lifecycle asymmetry (e.g. upfront architectural complexity vs. downstream implementation friction) without requiring explicit YAML authoring:
+1. **Phase structuring**: Preset topology generators partition nodes into standard phases: Design (upstream foundation), Development (core implementation), and Reviews/Gates (intermediate and final checkpoints).
+2. **Phase multipliers**: CLI introduces `--design-effort` and `--dev-effort` (finite positive numbers, default 1.0) to scale the baseline effort of nodes in each respective phase.
+3. **Progression trends**: CLI introduces `--effort-trend` (`flat`, `fatigue`, `accelerating`):
+   - `flat` (default): Constant effort across nodes within the phase.
+   - `fatigue`: Compounding effort multipliers toward later development nodes (up to 1.5x) to model architectural debt and integration drag.
+   - `accelerating`: Tapering effort multipliers toward later development nodes (down to 0.7x) to model team learning effects.
+   - These options are ignored with a warning when `--topology` is supplied.
+
+Trend multipliers are experimental and uncalibrated and can overlap with complexity risk. Continuation estimates trend progress using cumulative completed and remaining task counts, since task identities and phases are unknown.

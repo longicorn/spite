@@ -210,3 +210,31 @@ class ExplicitReworkTests(unittest.TestCase):
         result = simulate(nodes, 1, 0, 1, 1, random.Random(3), people=[('a', ('dev',))])
         self.assertTrue(any(n.name == 'Build (rework 1)' for n in result.nodes))
         self.assertFalse(any(n.name == 'Review work (rework 1)' for n in result.nodes))
+
+
+
+class EffortReviewTests(unittest.TestCase):
+    def test_effort_trends_and_rework_override(self):
+        from spite.simulation.engine import generate, simulate, Node
+        import random
+        graph = generate('linear', 'small', design_effort=2, dev_effort=3, effort_trend='fatigue')
+        assert graph[0].effort == 2
+        assert graph[1].effort == 3
+        assert graph[6].effort == 4.5
+        nodes = [Node('Build', 'task', (), effort=4), Node('Review', 'gate', (0,), rework_probability=1)]
+        result = simulate(nodes, 1, 0, 0, 1, random.Random(1))
+        assert any(n.effort == 4 and 'rework' in n.name for n in result.nodes)
+        nodes[1] = Node('Review', 'gate', (0,), rework_probability=0)
+        assert not any('rework' in n.name for n in simulate(nodes, 1, 0, 1, 1, random.Random(1)).nodes)
+
+    def test_continuation_and_effort_fractions(self):
+        from spite.simulation.engine import generate, simulate, Node
+        import random
+        graph = generate('linear', 'small', 4, effort_trend='fatigue', completed_tasks=4)
+        self.assertGreater(graph[0].effort, 1)
+        self.assertEqual(graph[3].effort, 1.5)
+        nodes = [Node('Explore', 'exploratory', (), effort=4, discovery_effort=2),
+                 Node('Review', 'gate', (0,), rework_probability=1, rework_fraction=.3)]
+        result = simulate(nodes, 1, 1, 0, 1, random.Random(1))
+        self.assertTrue(any(n.name.startswith('Discovery') and n.effort == 2 for n in result.nodes))
+        self.assertTrue(any('rework' in n.name and abs(n.effort - 1.2) < 1e-9 for n in result.nodes))
